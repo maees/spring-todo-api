@@ -41,8 +41,25 @@ public class HelloAPI {
         return todos;
     }
 
+    // @PostMapping("/todos")
+    // public Todo createTodo(@RequestBody Todo newTodo) {
+    //     todos.add(newTodo);
+    //     return newTodo;
+    // }
+
     @PostMapping("/todos")
-    public Todo createTodo(@RequestBody Todo newTodo) {
+    public Todo createTodo(@RequestBody CreateTodoRequest request) {
+        long nextId = todos.stream()
+                .mapToLong(Todo::id)
+                .max()
+                .orElse(0) + 1;
+
+        Todo newTodo = new Todo(
+                nextId,
+                request.title(),
+                request.done()
+        );
+
         todos.add(newTodo);
         return newTodo;
     }
