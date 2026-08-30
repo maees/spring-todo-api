@@ -7,6 +7,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 
 @RestController
 public class HelloAPI {
@@ -63,4 +67,53 @@ public class HelloAPI {
         todos.add(newTodo);
         return newTodo;
     }
+
+    // @GetMapping("/todos/{id}")
+    // public ResponseEntity<Todo> getTodo(@PathVariable long id) {
+    //     return todos.stream()
+    //             .filter(todo -> todo.id() == id)
+    //             .findFirst()
+    //             .map(ResponseEntity::ok)
+    //             .orElseGet(() -> ResponseEntity.notFound().build());
+    // }
+
+
+    @GetMapping("/todos/{id}")
+    public ResponseEntity<Todo> getTodo(@PathVariable long id) {
+        return todos.stream()
+                .filter(todo -> todo.id() == id)
+                .findFirst()
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/todos/{id}")
+    public ResponseEntity<Todo> updateTodo(
+            @PathVariable long id,
+            @RequestBody UpdateTodoRequest request) {
+
+        for (int i = 0; i < todos.size(); i++) {
+            Todo todo = todos.get(i);
+            if (todo.id() == id) {
+                Todo updatedTodo = new Todo(
+                        todo.id(),
+                        request.title(),
+                        request.done()
+                );
+                todos.set(i, updatedTodo);
+                return ResponseEntity.ok(updatedTodo);
+            }
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @DeleteMapping("/todos/{id}")
+    public ResponseEntity<Void> deleteTodo(@PathVariable long id) {
+        boolean removed = todos.removeIf(todo -> todo.id() == id);
+
+        return removed
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();   
+    }
+
 }
