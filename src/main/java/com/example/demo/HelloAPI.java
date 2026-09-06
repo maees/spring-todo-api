@@ -46,12 +46,12 @@ public class HelloAPI {
 
     @GetMapping("/todos")
     public List<Todo> todos(){
-        return todoRepository.findAll();
+        return todoService.findAll();
     }
 
     @GetMapping("/todos/{id}")
     public ResponseEntity<Todo> getTodo(@PathVariable long id) {
-        return todoRepository.findById(id)
+        return todoService.findById(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -77,7 +77,7 @@ public class HelloAPI {
 
         // todos.add(newTodo);
         // return newTodo;
-        return todoRepository.create(request);
+        return todoService.create(request);
     }
 
     // @GetMapping("/todos/{id}")
@@ -124,7 +124,7 @@ public class HelloAPI {
             @PathVariable long id,
             @RequestBody UpdateTodoRequest request) {
 
-        return todoRepository.update(id, request)
+        return todoService.update(id, request)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -141,17 +141,17 @@ public class HelloAPI {
 
     @DeleteMapping("/todos/{id}")
     public ResponseEntity<Void> deleteTodo(@PathVariable long id) {
-        boolean deleted = todoRepository.deleteById(id);
+        boolean deleted = todoService.deleteById(id);
 
         return deleted
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 
-    private final TodoRepository todoRepository;
+    private final TodoService todoService;
 
-    public HelloAPI(TodoRepository todoRepository) {
-        this.todoRepository = todoRepository;
+    public HelloAPI(TodoService todoService) {
+        this.todoService = todoService;
     }
 
 }
