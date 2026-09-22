@@ -1,7 +1,8 @@
 package com.example.demo;
 
-import java.util.ArrayList;
+// import java.util.ArrayList;
 import java.util.List;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,10 +15,10 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 @RestController
 public class HelloAPI {
 
-    private final List<Todo> todos = new ArrayList<>(List.of(
-        new Todo(1, "Spring Bootを学ぶ", false),
-        new Todo(2, "APIを作る", false)
-    ));
+    // private final List<Todo> todos = new ArrayList<>(List.of(
+    //     new Todo(1, "Spring Bootを学ぶ", false),
+    //     new Todo(2, "APIを作る", false)
+    // ));
 
     @GetMapping("/hello")
     public String hello() {
@@ -46,12 +47,12 @@ public class HelloAPI {
 
     @GetMapping("/todos")
     public List<Todo> todos(){
-        return todoService.findAll();
+        return todoRepository.findAll();
     }
 
     @GetMapping("/todos/{id}")
     public ResponseEntity<Todo> getTodo(@PathVariable long id) {
-        return todoService.findById(id)
+        return todoRepository.findById(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -63,7 +64,7 @@ public class HelloAPI {
     // }
 
     @PostMapping("/todos")
-    public Todo createTodo(@RequestBody CreateTodoRequest request) {
+    public Todo createTodo(@Valid @RequestBody CreateTodoRequest request) {
         // long nextId = todos.stream()
         //         .mapToLong(Todo::id)
         //         .max()
@@ -77,7 +78,7 @@ public class HelloAPI {
 
         // todos.add(newTodo);
         // return newTodo;
-        return todoService.create(request);
+        return todoRepository.create(request);
     }
 
     // @GetMapping("/todos/{id}")
@@ -122,9 +123,9 @@ public class HelloAPI {
     @PutMapping("/todos/{id}")
     public ResponseEntity<Todo> updateTodo(
             @PathVariable long id,
-            @RequestBody UpdateTodoRequest request) {
+            @Valid @RequestBody UpdateTodoRequest request) {
 
-        return todoService.update(id, request)
+        return todoRepository.update(id, request)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -141,17 +142,17 @@ public class HelloAPI {
 
     @DeleteMapping("/todos/{id}")
     public ResponseEntity<Void> deleteTodo(@PathVariable long id) {
-        boolean deleted = todoService.deleteById(id);
+        boolean deleted = todoRepository.deleteById(id);
 
         return deleted
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 
-    private final TodoService todoService;
+    private final TodoRepository todoRepository;
 
-    public HelloAPI(TodoService todoService) {
-        this.todoService = todoService;
+    public HelloAPI(TodoRepository todoRepository) {
+        this.todoRepository = todoRepository;
     }
 
 }
