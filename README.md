@@ -12,18 +12,26 @@ Spring Bootで作った、Todoを管理するシンプルなREST APIです。
 
 ## 起動方法
 
+Java 26とDockerを用意し、Dockerを起動しておきます。
+以下はプロジェクトのフォルダで実行します。
+
+まず、PostgreSQLを起動します。
+
+```zsh
+docker compose up -d db
+```
+
+続いて、Spring Bootを起動します。
+
 ```zsh
 ./gradlew bootRun
+```
 
-## API一覧
+起動後、別のターミナルでTodo一覧を取得できます。
 
-| メソッド | URL | 内容 |
-| --- | --- | --- |
-| GET | `/todos` | Todo一覧を取得 |
-| GET | `/todos/{id}` | 1件取得 |
-| POST | `/todos` | 新規作成 |
-| PUT | `/todos/{id}` | 更新 |
-| DELETE | `/todos/{id}` | 削除 |
+```zsh
+curl -i http://localhost:8080/todos
+```
 
 ## 使い方
 
@@ -51,7 +59,32 @@ Todoを削除します。
 curl -i -X DELETE http://localhost:8080/todos/1
 ```
 
-## 注意
 
-Todoはサーバーのメモリ上に保存しています。  
-そのため、Spring Bootを停止・再起動するとデータは初期状態に戻ります。
+## データの保存
+
+TodoはDockerで起動したPostgreSQLに保存しています。
+Spring Bootを停止・再起動してもデータは残ります。
+PostgreSQLのデータはDockerの名前付きボリュームで保持しています。
+
+## テスト方法
+
+入力チェックとControllerのテストを実行します。
+この2つのテストは、DBやSpring Bootのサーバーを起動せずに実行できます。
+
+```zsh
+./gradlew test --tests "com.example.demo.CreateTodoRequestTest" --tests "com.example.demo.HelloAPITest"
+```
+
+確認する内容：
+
+- 不正なタイトルを拒否する
+- 正しいタイトルを受け付ける
+- 空タイトルの登録で400とエラーメッセージを返す
+- 存在しないIDの取得で404を返す
+- 存在するIDの取得で200とTodoの内容を返す
+
+Macでは、次のコマンドでテスト結果を開けます。
+
+```zsh
+open build/reports/tests/test/index.html
+```
