@@ -57,6 +57,22 @@ Todoを削除します。
 
 ```zsh
 curl -i -X DELETE http://localhost:8080/todos/1
+
+### 完了状態で絞り込む
+
+未完了のTodoだけ取得します。
+
+```zsh
+curl -i "http://localhost:8080/todos?done=false"
+```
+
+完了済みのTodoだけ取得します。
+
+```zsh
+curl -i "http://localhost:8080/todos?done=true"
+```ß
+
+`done` を省略すると全件取得します。該当するTodoがなければ `[]` を返します。
 ```
 
 
