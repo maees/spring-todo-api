@@ -76,6 +76,16 @@ public class TodoRepository {
         return deleted > 0;
     }
 
-
+    public List<Todo> findByDone(boolean done) {
+        return jdbcTemplate.query(
+                "SELECT id, title, done FROM todos WHERE done = ? ORDER BY id",
+                (rs, rowNum) -> new Todo(
+                        rs.getLong("id"),
+                        rs.getString("title"),
+                        rs.getBoolean("done")
+                ),
+                done
+        );
+    }
 
 }

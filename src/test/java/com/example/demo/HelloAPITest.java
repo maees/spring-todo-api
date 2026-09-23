@@ -17,6 +17,7 @@ import java.util.Optional;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import java.util.List;
 
 @WebMvcTest(HelloAPI.class)
 @Import(ApiExceptionHandler.class)
@@ -51,20 +52,36 @@ class HelloAPITest {
 
         verify(todoRepository).findById(999L);
     }
-    
+
+    // @Test
+    // void 存在するIDの取得は200とTodoを返す() throws Exception {
+    //     var todo = new Todo(1L, "Spring Bootを学ぶ", false);
+
+    //     when(todoRepository.findById(1L))
+    //             .thenReturn(Optional.of(todo));
+
+    //     mockMvc.perform(get("/todos/1"))
+    //             .andExpect(status().isOk())
+    //             .andExpect(jsonPath("$.id").value(1))
+    //             .andExpect(jsonPath("$.title").value("Spring Bootを学ぶ"))
+    //             .andExpect(jsonPath("$.done").value(false));
+
+    //     verify(todoRepository).findById(1L);
+    // }
+
     @Test
-    void 存在するIDの取得は200とTodoを返す() throws Exception {
-        var todo = new Todo(1L, "Spring Bootを学ぶ", false);
+    void 未完了を指定すると未完了の検索結果を返す() throws Exception {
+        var todo = new Todo(1L, "未完了のTodo", false);
 
-        when(todoRepository.findById(1L))
-                .thenReturn(Optional.of(todo));
+        when(todoRepository.findByDone(false))
+                .thenReturn(List.of(todo));
 
-        mockMvc.perform(get("/todos/1"))
+        mockMvc.perform(get("/todos").param("done", "false"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.title").value("Spring Bootを学ぶ"))
-                .andExpect(jsonPath("$.done").value(false));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].done").value(false));
 
-        verify(todoRepository).findById(1L);
+        verify(todoRepository).findByDone(false);
     }
 }

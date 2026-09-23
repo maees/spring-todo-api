@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 public class HelloAPI {
@@ -45,10 +46,22 @@ public class HelloAPI {
     //     return todos;
     // }
 
+    // @GetMapping("/todos")
+    // public List<Todo> todos(){
+    //     return todoRepository.findAll();
+    // }
+
     @GetMapping("/todos")
-    public List<Todo> todos(){
-        return todoRepository.findAll();
+    public List<Todo> todos(
+            @RequestParam(required = false) Boolean done) {
+
+        if (done == null) {
+            return todoRepository.findAll();
+        }
+
+        return todoRepository.findByDone(done);
     }
+    
 
     @GetMapping("/todos/{id}")
     public ResponseEntity<Todo> getTodo(@PathVariable long id) {
