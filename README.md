@@ -1,108 +1,85 @@
-# Spring Boot Todo API
+# Todoアプリ
 
-Spring Bootで作った、Todoを管理するシンプルなREST APIです。
+TypeScript 7を使ったReact + Viteの画面と、Bun上のHono APIで構成しています。DBアクセスはPrisma、保存先はPostgreSQL、API入力はZodで検証します。
 
-## できること
+## 機能
 
-- Todo一覧の取得
-- Todoを1件取得
-- Todoを新規作成
-- Todoを更新
-- Todoを削除
+- Todoの一覧・詳細・作成・更新・削除
+- 完了・未完了での絞り込み
+- 入力値の検証とエラー応答
 
-## 起動方法
+## 起動
 
-Java 26とDockerを用意し、Dockerを起動しておきます。
-以下はプロジェクトのフォルダで実行します。
-
-まず、PostgreSQLを起動します。
+Bun 1.4以降とDockerを用意し、プロジェクトのルートでPostgreSQLを起動します。
 
 ```zsh
 docker compose up -d db
 ```
 
-続いて、Spring Bootを起動します。
+初回はbackendの設定と依存関係、Prisma Clientを準備します。
 
 ```zsh
-./gradlew bootRun
+cd backend
+cp .env.example .env
+bun install
+bun run db:generate
 ```
 
-起動後、ブラウザで [http://localhost:8080](http://localhost:8080) を開くと、Todoを追加・完了・削除できる画面を使えます。
-
-起動後、別のターミナルでTodo一覧を取得できます。
+既存のSpring Boot用PostgreSQLデータを使う場合は、初回のみmigration履歴を登録します。既存Todoの行は変更しません。
 
 ```zsh
-curl -i http://localhost:8080/todos
+bun run db:baseline
 ```
 
-## 使い方
-
-Todo一覧を取得します。
+空のPostgreSQLを使う場合は、代わりにmigrationを適用します。
 
 ```zsh
-curl -i http://localhost:8080/todos
+bun run db:deploy
 ```
 
-Todoを作成します。
+別のターミナルでAPIを起動します。
 
 ```zsh
-curl -i -X POST http://localhost:8080/todos -H 'Content-Type: application/json' -d '{"title":"APIを学ぶ","done":false}'
+cd backend
+bun run dev
 ```
 
-Todoを更新します。
+さらに別のターミナルでReact画面を起動します。
 
 ```zsh
-curl -i -X PUT http://localhost:8080/todos/1 -H 'Content-Type: application/json' -d '{"title":"Spring Bootを深く学ぶ","done":true}'
+cd frontend
+bun install
+bun run dev
 ```
 
-Todoを削除します。
+画面は [http://localhost:5173](http://localhost:5173)、APIは `http://localhost:3000/api` です。ViteがAPIリクエストをHonoへ転送します。
+
+## API
+
+```text
+GET    /api/todos?done=true|false
+GET    /api/todos/:id
+POST   /api/todos
+PUT    /api/todos/:id
+DELETE /api/todos/:id
+GET    /api/health
+```
+
+POST/PUTのJSONは `title` と `done` を受け取ります。`title` は空文字不可、255文字以内です。
+
+## 確認
+
+各アプリのディレクトリで実行します。
 
 ```zsh
-curl -i -X DELETE http://localhost:8080/todos/1
+bun run typecheck
 ```
 
-### 完了状態で絞り込む
-
-未完了のTodoだけ取得します。
+Frontendのproduction build:
 
 ```zsh
-curl -i "http://localhost:8080/todos?done=false"
+cd frontend
+bun run build
 ```
 
-完了済みのTodoだけ取得します。
-
-```zsh
-curl -i "http://localhost:8080/todos?done=true"
-```
-
-`done` を省略すると全件取得します。該当するTodoがなければ `[]` を返します。
-
-
-## データの保存
-
-TodoはDockerで起動したPostgreSQLに保存しています。
-Spring Bootを停止・再起動してもデータは残ります。
-PostgreSQLのデータはDockerの名前付きボリュームで保持しています。
-
-## テスト方法
-
-入力チェックとControllerのテストを実行します。
-この2つのテストは、DBやSpring Bootのサーバーを起動せずに実行できます。
-
-```zsh
-./gradlew test --tests "com.example.demo.CreateTodoRequestTest" --tests "com.example.demo.HelloAPITest"
-```
-
-確認する内容：
-
-- 不正なタイトルを拒否する
-- 正しいタイトルを受け付ける
-- 空タイトルの登録で400とエラーメッセージを返す
-- 存在しないIDの取得で404を返す
-- 存在するIDの取得で200とTodoの内容を返す
-
-Macでは、次のコマンドでテスト結果を開けます。
-
-```zsh
-open build/reports/tests/test/index.html
-```
+既存のJava/Spring Boot学習コードは `src/` に残しています。現在のTodoアプリは `backend/` と `frontend/` で起動します。
