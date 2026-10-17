@@ -27,6 +27,8 @@ docker compose up -d db
 ./gradlew bootRun
 ```
 
+起動後、ブラウザで [http://localhost:8080](http://localhost:8080) を開くと、Todoを追加・完了・削除できる画面を使えます。
+
 起動後、別のターミナルでTodo一覧を取得できます。
 
 ```zsh
@@ -57,6 +59,7 @@ Todoを削除します。
 
 ```zsh
 curl -i -X DELETE http://localhost:8080/todos/1
+```
 
 ### 完了状態で絞り込む
 
@@ -70,10 +73,9 @@ curl -i "http://localhost:8080/todos?done=false"
 
 ```zsh
 curl -i "http://localhost:8080/todos?done=true"
-```ß
+```
 
 `done` を省略すると全件取得します。該当するTodoがなければ `[]` を返します。
-```
 
 
 ## データの保存

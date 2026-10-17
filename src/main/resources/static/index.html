@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#122b3a">
+    <meta name="description" content="Spring Boot Todoアプリ">
+    <title>今日のToDo | Focus</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script defer src="/js/app.js"></script>
+</head>
+<body>
+    <main class="app-shell">
+        <section class="hero" aria-labelledby="page-title">
+            <p class="eyebrow">SPRING BOOT TODO</p>
+            <h1 id="page-title">今日を、<br><em>ひとつずつ。</em></h1>
+            <p class="hero-copy">小さな完了を積み重ねよう。</p>
+            <div class="shape shape-sun" aria-hidden="true"></div>
+            <div class="shape shape-line" aria-hidden="true"></div>
+        </section>
+
+        <section class="todo-panel" aria-label="Todoの管理">
+            <header class="panel-header">
+                <div>
+                    <p class="date-label" id="today-label"></p>
+                    <h2>やること</h2>
+                </div>
+                <div class="progress-ring" id="progress-ring" role="img" aria-label="完了率 0パーセント">
+                    <span id="progress-value">0%</span>
+                </div>
+            </header>
+
+            <form class="todo-form" id="todo-form">
+                <label class="sr-only" for="todo-title">新しいTodo</label>
+                <input id="todo-title" name="title" type="text" maxlength="255" placeholder="新しいTodoを入力" autocomplete="off" required>
+                <button type="submit" class="add-button"><span aria-hidden="true">＋</span>追加</button>
+            </form>
+            <p class="form-message" id="form-message" aria-live="polite"></p>
+
+            <div class="toolbar">
+                <div class="filters" role="group" aria-label="Todoの表示を絞り込む">
+                    <button class="filter-button is-active" type="button" data-filter="all">すべて</button>
+                    <button class="filter-button" type="button" data-filter="open">未完了</button>
+                    <button class="filter-button" type="button" data-filter="done">完了</button>
+                </div>
+                <p class="count-label" id="count-label">0件</p>
+            </div>
+
+            <div class="loading" id="loading" hidden>読み込み中…</div>
+            <ul class="todo-list" id="todo-list" aria-live="polite"></ul>
+
+            <div class="empty-state" id="empty-state" hidden>
+                <span class="empty-mark" aria-hidden="true">✓</span>
+                <h3>ここから始めよう</h3>
+                <p>上の入力欄から、最初のTodoを追加できます。</p>
+            </div>
+
+            <footer class="panel-footer">
+                <p id="summary">まだTodoはありません</p>
+                <span>データはPostgreSQLに保存されます</span>
+            </footer>
+        </section>
+    </main>
+</body>
+</html>
