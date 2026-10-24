@@ -6,6 +6,8 @@ TypeScript 7を使ったReact + Viteの画面と、Bun上のHono APIで構成し
 
 - Todoの一覧・詳細・作成・更新・削除
 - 完了・未完了での絞り込み
+- 日付が変わった後の未完了Todo引き継ぎ
+- ファイルタブから過去ページを閲覧
 - 入力値の検証とエラー応答
 
 ## 起動
@@ -31,11 +33,15 @@ bun run db:generate
 bun run db:baseline
 ```
 
-空のPostgreSQLを使う場合は、代わりにmigrationを適用します。
+続けて、保留中のmigrationを適用します。
 
 ```zsh
 bun run db:deploy
 ```
+
+空のPostgreSQLの場合はbaselineを省略し、`bun run db:deploy`を実行します。
+
+各ページはAsia/Tokyoの日付で保存します。日付が変わった後の最初のアクセス時に新しいページを作り、直前のページの未完了Todoをコピーします。過去ページは画面から閲覧できますが、編集はできません。
 
 別のターミナルでAPIを起動します。
 
@@ -58,7 +64,9 @@ bun run dev
 
 ```text
 GET    /api/todos?done=true|false
+GET    /api/todos?date=YYYY-MM-DD&done=true|false
 GET    /api/todos/:id
+GET    /api/days
 POST   /api/todos
 PUT    /api/todos/:id
 DELETE /api/todos/:id

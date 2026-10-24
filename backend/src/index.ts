@@ -1,9 +1,19 @@
 import { Hono } from "hono";
 import todos from "./todos";
+import { dateToKey, ensureCurrentDayPage } from "./day-pages";
+import { prisma } from "./prisma";
 
 const app = new Hono();
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
+app.get("/api/days", async (c) => {
+    await ensureCurrentDayPage();
+    const pages = await prisma.todoDay.findMany({
+        orderBy: { date: "desc" },
+        include: { _count: { select: { todos: true } } }
+    });
+    return c.json(pages.map((page) => ({ date: dateToKey(page.date), todoCount: page._count.todos })));
+});
 app.route("/api/todos", todos);
 
 app.onError((error, c) => {

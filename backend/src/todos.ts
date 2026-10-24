@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { prisma } from "./prisma";
+import { dateKeyToDate, dateToKey, ensureCurrentDayPage, getTodayDateKey } from "./day-pages";
 
 const todoResponse = z.object({
     id: z.string(),
@@ -20,7 +21,8 @@ const updateTodoSchema = z.object({
 });
 
 const todoQuerySchema = z.object({
-    done: z.enum(["true", "false"]).optional()
+    done: z.enum(["true", "false"]).optional(),
+    date: z.iso.date().optional()
 });
 
 const todoParamsSchema = z.object({
@@ -43,10 +45,20 @@ function serializeTodo(todo: { id: bigint; title: string; done: boolean }) {
 const todos = new Hono();
 
 todos.get("/", zValidator("query", todoQuerySchema, validationResponse), async (c) => {
-    const { done } = c.req.valid("query");
+    const { done, date: requestedDate } = c.req.valid("query");
+    const date = requestedDate ?? getTodayDateKey();
+    if (date === getTodayDateKey()) await ensureCurrentDayPage();
+
+    const day = dateKeyToDate(date);
+    const page = await prisma.todoDay.findUnique({ where: { date: day } });
+    if (!page) return c.json([]);
+
     const result = await prisma.todo.findMany({
-        where: done === undefined ? undefined : { done: done === "true" },
-        orderBy: { id: "asc" }
+        where: {
+            day,
+            ...(done === undefined ? {} : { done: done === "true" })
+        },
+        orderBy: [{ done: "asc" }, { id: "asc" }]
     });
     return c.json(result.map(serializeTodo));
 });
@@ -59,25 +71,32 @@ todos.get("/:id", zValidator("param", todoParamsSchema, validationResponse), asy
 
 todos.post("/", zValidator("json", createTodoSchema, validationResponse), async (c) => {
     const input = c.req.valid("json");
-    const todo = await prisma.todo.create({ data: input });
+    await ensureCurrentDayPage();
+    const todo = await prisma.todo.create({ data: { ...input, day: dateKeyToDate(getTodayDateKey()) } });
     return c.json(serializeTodo(todo), 201);
 });
 
 todos.put("/:id", zValidator("param", todoParamsSchema, validationResponse), zValidator("json", updateTodoSchema, validationResponse), async (c) => {
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    const result = await prisma.todo.updateMany({ where: { id }, data: input });
-    if (result.count === 0) return c.json({ errors: ["Todoが見つかりません"] }, 404);
-    const todo = await prisma.todo.findUniqueOrThrow({ where: { id } });
+    const existing = await prisma.todo.findUnique({ where: { id }, select: { day: true } });
+    if (!existing) return c.json({ errors: ["Todoが見つかりません"] }, 404);
+    if (dateToKey(existing.day) !== getTodayDateKey()) {
+        return c.json({ errors: ["過去の日付のTodoは変更できません"] }, 409);
+    }
+    const todo = await prisma.todo.update({ where: { id }, data: input });
     return c.json(serializeTodo(todo));
 });
 
 todos.delete("/:id", zValidator("param", todoParamsSchema, validationResponse), async (c) => {
     const { id } = c.req.valid("param");
-    const result = await prisma.todo.deleteMany({ where: { id } });
-    return result.count > 0
-        ? c.body(null, 204)
-        : c.json({ errors: ["Todoが見つかりません"] }, 404);
+    const existing = await prisma.todo.findUnique({ where: { id }, select: { day: true } });
+    if (!existing) return c.json({ errors: ["Todoが見つかりません"] }, 404);
+    if (dateToKey(existing.day) !== getTodayDateKey()) {
+        return c.json({ errors: ["過去の日付のTodoは削除できません"] }, 409);
+    }
+    await prisma.todo.delete({ where: { id } });
+    return c.body(null, 204);
 });
 
 export default todos;

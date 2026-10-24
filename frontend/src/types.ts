@@ -5,3 +5,8 @@ export type Todo = {
 };
 
 export type TodoFilter = "all" | "open" | "done";
+
+export type TodoDaySummary = {
+    date: string;
+    todoCount: number;
+};

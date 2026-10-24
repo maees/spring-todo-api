@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { Todo, TodoFilter } from "./types";
+import type { Todo, TodoDaySummary, TodoFilter } from "./types";
 import "./style.css";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -19,9 +19,35 @@ const filters: { value: TodoFilter; label: string }[] = [
     { value: "done", label: "完了" }
 ];
 
+function getTokyoDateKey(): string {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).formatToParts(new Date());
+    const value = (type: string) => parts.find((part) => part.type === type)!.value;
+    return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function formatDay(dateKey: string): string {
+    return new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "short"
+    }).format(new Date(`${dateKey}T00:00:00.000Z`));
+}
+
 function TodoApp() {
+    const [dayState, setDayState] = useState(() => {
+        const today = getTokyoDateKey();
+        return { today, selected: today };
+    });
     const [filter, setFilter] = useState<TodoFilter>("all");
     const [todos, setTodos] = useState<Todo[]>([]);
+    const [availableDays, setAvailableDays] = useState<TodoDaySummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [title, setTitle] = useState("");
@@ -32,6 +58,26 @@ function TodoApp() {
     const titleInput = useRef<HTMLInputElement>(null);
     const editInput = useRef<HTMLInputElement>(null);
     const editForm = useRef<HTMLFormElement>(null);
+    const { today: todayDate, selected: selectedDate } = dayState;
+    const isReadOnly = selectedDate !== todayDate;
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            const nextToday = getTokyoDateKey();
+            setDayState((current) => current.today === nextToday
+                ? current
+                : {
+                    today: nextToday,
+                    selected: current.selected === current.today ? nextToday : current.selected
+                });
+        }, 15_000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        setEditingTodoId(null);
+        setEditingTitle("");
+    }, [todayDate]);
 
     useEffect(() => {
         if (editingTodoId) {
@@ -57,11 +103,12 @@ function TodoApp() {
 
     useEffect(() => {
         let active = true;
-        const query = filter === "all" ? "" : `?done=${filter === "done"}`;
+        const query = new URLSearchParams({ date: selectedDate });
+        if (filter !== "all") query.set("done", String(filter === "done"));
         setLoading(true);
         setMessage("");
 
-        request<Todo[]>(`/api/todos${query}`)
+        request<Todo[]>(`/api/todos?${query}`)
             .then((data) => {
                 if (active) setTodos(data);
             })
@@ -75,7 +122,21 @@ function TodoApp() {
         return () => {
             active = false;
         };
-    }, [filter, reload]);
+    }, [filter, reload, selectedDate]);
+
+    useEffect(() => {
+        let active = true;
+        request<TodoDaySummary[]>("/api/days")
+            .then((days) => {
+                if (active) setAvailableDays(days);
+            })
+            .catch(() => {
+                if (active) setMessage("過去の日付を読み込めませんでした。");
+            });
+        return () => {
+            active = false;
+        };
+    }, [reload, todayDate]);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -145,6 +206,14 @@ function TodoApp() {
         setMessage("");
     }
 
+    function selectDay(date: string) {
+        setDayState((current) => ({ ...current, selected: date }));
+        setFilter("all");
+        setEditingTodoId(null);
+        setEditingTitle("");
+        setMessage("");
+    }
+
     async function handleDelete(todo: Todo) {
         if (!window.confirm(`「${todo.title}」を削除しますか？`)) return;
         setMessage("");
@@ -159,12 +228,6 @@ function TodoApp() {
     const total = todos.length;
     const done = todos.filter((todo) => todo.done).length;
     const percent = total === 0 ? 0 : Math.round((done / total) * 100);
-    const today = new Intl.DateTimeFormat("ja-JP", {
-        month: "long",
-        day: "numeric",
-        weekday: "short"
-    }).format(new Date());
-
     return (
         <main className="app-shell">
             <section className="hero" aria-labelledby="page-title">
@@ -176,9 +239,25 @@ function TodoApp() {
             </section>
 
             <section className="todo-panel" aria-label="Todoの管理">
+                <div className="archive-tabs" role="group" aria-label="日付のページ">
+                    {availableDays.map((day) => (
+                        <button
+                            className={`archive-tab${day.date === selectedDate ? " is-selected" : ""}`}
+                            type="button"
+                            key={day.date}
+                            aria-pressed={day.date === selectedDate}
+                            aria-label={`${formatDay(day.date)}${day.date === todayDate ? "、今日" : `、Todo ${day.todoCount}件`}`}
+                            title={formatDay(day.date)}
+                            onClick={() => selectDay(day.date)}
+                        >
+                            <span className="archive-tab-date">{formatDay(day.date)}</span>
+                            <small>{day.date === todayDate ? "今日" : `${day.todoCount}件`}</small>
+                        </button>
+                    ))}
+                </div>
                 <header className="panel-header">
                     <div>
-                        <p className="date-label">{today}</p>
+                        <p className="date-label">{formatDay(selectedDate)}</p>
                         <h2>やること</h2>
                     </div>
                     <div
@@ -191,22 +270,26 @@ function TodoApp() {
                     </div>
                 </header>
 
-                <form className="todo-form" onSubmit={handleSubmit}>
-                    <label className="sr-only" htmlFor="todo-title">新しいTodo</label>
-                    <input
-                        ref={titleInput}
-                        id="todo-title"
-                        name="title"
-                        type="text"
-                        maxLength={255}
-                        placeholder="新しいTodoを入力"
-                        autoComplete="off"
-                        required
-                        value={title}
-                        onChange={(event) => setTitle(event.target.value)}
-                    />
-                    <button type="submit" className="add-button"><span aria-hidden="true">＋</span>追加</button>
-                </form>
+                {isReadOnly ? (
+                    <p className="archive-notice">過去の日付のページは閲覧専用です</p>
+                ) : (
+                    <form className="todo-form" onSubmit={handleSubmit}>
+                        <label className="sr-only" htmlFor="todo-title">新しいTodo</label>
+                        <input
+                            ref={titleInput}
+                            id="todo-title"
+                            name="title"
+                            type="text"
+                            maxLength={255}
+                            placeholder="新しいTodoを入力"
+                            autoComplete="off"
+                            required
+                            value={title}
+                            onChange={(event) => setTitle(event.target.value)}
+                        />
+                        <button type="submit" className="add-button"><span aria-hidden="true">＋</span>追加</button>
+                    </form>
+                )}
                 <p className="form-message" aria-live="polite">{message}</p>
 
                 <div className="toolbar">
@@ -236,12 +319,12 @@ function TodoApp() {
                                     type="button"
                                     aria-pressed={todo.done}
                                     aria-label={`「${todo.title}」を${todo.done ? "未完了" : "完了"}にする`}
-                                    disabled={editingTodoId === todo.id}
+                                    disabled={isReadOnly || editingTodoId === todo.id}
                                     onClick={() => handleToggle(todo)}
                                 >
                                     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                 </button>
-                                {editingTodoId === todo.id ? (
+                                {editingTodoId === todo.id && !isReadOnly ? (
                                     <form ref={editForm} className="todo-edit-form" onSubmit={(event) => handleEditSubmit(event, todo)}>
                                         <input
                                             ref={editInput}
@@ -261,22 +344,27 @@ function TodoApp() {
                                     </form>
                                 ) : (
                                     <>
-                                        <button
-                                            className="todo-title todo-title-button"
-                                            type="button"
-                                            aria-label={`「${todo.title}」を編集する`}
-                                            onClick={() => {
-                                                setEditingTodoId(todo.id);
-                                                setEditingTitle(todo.title);
-                                                setMessage("");
-                                            }}
-                                        >
-                                            {todo.title}
-                                        </button>
+                                        {isReadOnly ? (
+                                            <span className="todo-title">{todo.title}</span>
+                                        ) : (
+                                            <button
+                                                className="todo-title todo-title-button"
+                                                type="button"
+                                                aria-label={`「${todo.title}」を編集する`}
+                                                onClick={() => {
+                                                    setEditingTodoId(todo.id);
+                                                    setEditingTitle(todo.title);
+                                                    setMessage("");
+                                                }}
+                                            >
+                                                {todo.title}
+                                            </button>
+                                        )}
                                         <button
                                             className="delete-button"
                                             type="button"
                                             aria-label={`「${todo.title}」を削除する`}
+                                            disabled={isReadOnly}
                                             onClick={() => handleDelete(todo)}
                                         >
                                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>

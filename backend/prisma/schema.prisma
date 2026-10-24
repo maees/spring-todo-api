@@ -11,6 +11,16 @@ model Todo {
   id    BigInt  @id @default(autoincrement())
   title String  @db.VarChar(255)
   done  Boolean @default(false)
+  day   DateTime @db.Date
+  page  TodoDay @relation(fields: [day], references: [date], onDelete: Cascade)
 
+  @@index([day, done, id])
   @@map("todos")
+}
+
+model TodoDay {
+  date  DateTime @id @db.Date
+  todos Todo[]
+
+  @@map("todo_days")
 }
