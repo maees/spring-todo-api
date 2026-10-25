@@ -6,6 +6,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:baseline": "prisma migrate resolve --applied 20261017000000_init",

@@ -7,7 +7,7 @@ TypeScript 7を使ったReact + Viteの画面と、Bun上のHono APIで構成し
 - Todoの一覧・詳細・作成・更新・削除
 - 完了・未完了での絞り込み
 - 日付が変わった後の未完了Todo引き継ぎ
-- ファイルタブから過去ページを閲覧
+- 日付タブとカレンダーから過去ページを閲覧（過去ページは閲覧専用）
 - 入力値の検証とエラー応答
 
 ## 起動
@@ -81,6 +81,13 @@ POST/PUTのJSONは `title` と `done` を受け取ります。`title` は空文�
 
 ```zsh
 bun run typecheck
+```
+
+BackendのユニットテストはPostgreSQLを起動せずに実行できます。
+
+```zsh
+cd backend
+bun run test
 ```
 
 Frontendのproduction build:

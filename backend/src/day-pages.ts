@@ -1,12 +1,12 @@
 import { prisma } from "./prisma";
 
-export function getTodayDateKey(): string {
+export function getTodayDateKey(now: Date = new Date()): string {
     const parts = new Intl.DateTimeFormat("en-GB", {
         timeZone: "Asia/Tokyo",
         year: "numeric",
         month: "2-digit",
         day: "2-digit"
-    }).formatToParts(new Date());
+    }).formatToParts(now);
     const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
     return `${values.year}-${values.month}-${values.day}`;
 }
@@ -19,10 +19,10 @@ export function dateToKey(date: Date): string {
     return date.toISOString().slice(0, 10);
 }
 
-export async function ensureDayPage(dateKey: string) {
+export async function ensureDayPage(dateKey: string, database: typeof prisma = prisma) {
     const day = dateKeyToDate(dateKey);
 
-    return prisma.$transaction(async (transaction) => {
+    return database.$transaction(async (transaction) => {
         await transaction.$queryRaw`SELECT pg_advisory_xact_lock(71423019) IS NOT NULL AS locked`;
 
         const existing = await transaction.todoDay.findUnique({ where: { date: day } });
