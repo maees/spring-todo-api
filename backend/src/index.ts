@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import todos from "./todos";
+import backup from "./backup";
 import { dateToKey, ensureCurrentDayPage } from "./day-pages";
 import { prisma } from "./prisma";
 
@@ -15,6 +16,7 @@ app.get("/api/days", async (c) => {
     return c.json(pages.map((page) => ({ date: dateToKey(page.date), todoCount: page._count.todos })));
 });
 app.route("/api/todos", todos);
+app.route("/api/backup", backup);
 
 app.onError((error, c) => {
     console.error(error);

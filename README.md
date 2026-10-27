@@ -8,6 +8,7 @@ TypeScript 7を使ったReact + Viteの画面と、Bun上のHono APIで構成し
 - 完了・未完了での絞り込み
 - 日付が変わった後の未完了Todo引き継ぎ
 - 日付タブとカレンダーから過去ページを閲覧（過去ページは閲覧専用）
+- 全TodoのJSON/CSV書き出しと復元（追加・置き換え）
 - 入力値の検証とエラー応答
 
 ## 起動
@@ -70,10 +71,21 @@ GET    /api/days
 POST   /api/todos
 PUT    /api/todos/:id
 DELETE /api/todos/:id
+GET    /api/backup/export?format=json|csv
+POST   /api/backup/import?format=json|csv&mode=merge|replace
 GET    /api/health
 ```
 
 POST/PUTのJSONは `title` と `done` を受け取ります。`title` は空文字不可、255文字以内です。
+
+## バックアップと復元
+
+画面フッターの「バックアップ / 復元」から、すべての日付ページとTodoをJSONまたはCSVで保存できます。CSVはExcelで開けるようBOM付きで出力します。
+
+復元はファイルを選択し、次のどちらかを指定します。
+
+- 追加（`mode=merge`）: 既存データを残し、同じ日付・タイトル・完了状態のTodoは重複させずに追加
+- 置き換え（`mode=replace`）: 既存データをすべて削除してバックアップの内容に置き換え
 
 ## 確認
 

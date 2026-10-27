@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { Todo, TodoDaySummary, TodoFilter } from "./types";
+import type { BackupResult, Todo, TodoDaySummary, TodoFilter } from "./types";
 import "./style.css";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -55,6 +55,28 @@ function shiftMonth(monthKey: string, amount: number): string {
     return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>, close: () => void) {
+    if (event.key === "Escape") {
+        close();
+        return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(
+        event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)')
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
 function TodoApp() {
     const [dayState, setDayState] = useState(() => {
         const today = getTokyoDateKey();
@@ -65,6 +87,11 @@ function TodoApp() {
     const [availableDays, setAvailableDays] = useState<TodoDaySummary[]>([]);
     const [calendarOpen, setCalendarOpen] = useState(false);
     const [calendarMonth, setCalendarMonth] = useState(() => getTokyoDateKey().slice(0, 7));
+    const [backupOpen, setBackupOpen] = useState(false);
+    const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+    const [importing, setImporting] = useState(false);
+    const [backupMessage, setBackupMessage] = useState("");
+    const [backupError, setBackupError] = useState(false);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [title, setTitle] = useState("");
@@ -78,6 +105,9 @@ function TodoApp() {
     const calendarCloseButton = useRef<HTMLButtonElement>(null);
     const calendarTrigger = useRef<HTMLButtonElement>(null);
     const wasCalendarOpen = useRef(false);
+    const backupCloseButton = useRef<HTMLButtonElement>(null);
+    const backupTrigger = useRef<HTMLButtonElement>(null);
+    const wasBackupOpen = useRef(false);
     const selectedDayTab = useRef<HTMLButtonElement>(null);
     const { today: todayDate, selected: selectedDate } = dayState;
     const isReadOnly = selectedDate !== todayDate;
@@ -108,6 +138,15 @@ function TodoApp() {
         }
         wasCalendarOpen.current = calendarOpen;
     }, [calendarOpen]);
+
+    useEffect(() => {
+        if (backupOpen) {
+            backupCloseButton.current?.focus();
+        } else if (wasBackupOpen.current) {
+            backupTrigger.current?.focus();
+        }
+        wasBackupOpen.current = backupOpen;
+    }, [backupOpen]);
 
     useEffect(() => {
         selectedDayTab.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
@@ -257,6 +296,42 @@ function TodoApp() {
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを削除できませんでした。");
+        }
+    }
+
+    async function handleImport(file: File) {
+        const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json";
+
+        if (importMode === "replace" && !window.confirm(
+            "既存のTodoをすべて削除して、ファイルの内容に置き換えます。よろしいですか？"
+        )) {
+            return;
+        }
+
+        setImporting(true);
+        setBackupMessage("");
+        setBackupError(false);
+
+        try {
+            const result = await request<BackupResult>(
+                `/api/backup/import?format=${format}&mode=${importMode}`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/json" },
+                    body: await file.text()
+                }
+            );
+            setReload((value) => value + 1);
+            setBackupMessage(
+                `${result.daysRestored}日分を読み込み、${result.todosCreated}件を追加しました`
+                + (result.todosSkipped > 0 ? `（重複${result.todosSkipped}件はスキップ）` : "")
+                + "。"
+            );
+        } catch (error) {
+            setBackupError(true);
+            setBackupMessage(error instanceof Error ? error.message : "復元できませんでした。");
+        } finally {
+            setImporting(false);
         }
     }
 
@@ -451,7 +526,18 @@ function TodoApp() {
 
                 <footer className="panel-footer">
                     <p>{total === 0 ? "まだTodoはありません" : `${total}件中 ${done}件を完了しました`}</p>
-                    <span>データはPostgreSQLに保存されます</span>
+                    <button
+                        ref={backupTrigger}
+                        className="backup-open"
+                        type="button"
+                        onClick={() => {
+                            setBackupMessage("");
+                            setBackupError(false);
+                            setBackupOpen(true);
+                        }}
+                    >
+                        バックアップ / 復元
+                    </button>
                 </footer>
             </section>
             {calendarOpen && (
@@ -467,27 +553,7 @@ function TodoApp() {
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="calendar-title"
-                        onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                                setCalendarOpen(false);
-                                return;
-                            }
-                            if (event.key !== "Tab") return;
-
-                            const focusable = Array.from(
-                                event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")
-                            );
-                            const first = focusable[0];
-                            const last = focusable.at(-1);
-                            if (!first || !last) return;
-                            if (event.shiftKey && document.activeElement === first) {
-                                event.preventDefault();
-                                last.focus();
-                            } else if (!event.shiftKey && document.activeElement === last) {
-                                event.preventDefault();
-                                first.focus();
-                            }
-                        }}
+                        onKeyDown={(event) => handleDialogKeyDown(event, () => setCalendarOpen(false))}
                     >
                         <header className="calendar-header">
                             <div>
@@ -555,6 +621,95 @@ function TodoApp() {
                             <span><i aria-hidden="true" />ページあり</span>
                             <button type="button" onClick={() => selectDay(todayDate)}>今日へ戻る</button>
                         </footer>
+                    </section>
+                </div>
+            )}
+            {backupOpen && (
+                <div className="calendar-overlay">
+                    <button
+                        className="calendar-backdrop"
+                        type="button"
+                        aria-label="バックアップを閉じる"
+                        onClick={() => setBackupOpen(false)}
+                    />
+                    <section
+                        className="calendar-sheet backup-sheet"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="backup-title"
+                        onKeyDown={(event) => handleDialogKeyDown(event, () => setBackupOpen(false))}
+                    >
+                        <header className="calendar-header">
+                            <div>
+                                <p>データ管理</p>
+                                <h2 id="backup-title">バックアップと復元</h2>
+                            </div>
+                            <div className="calendar-controls">
+                                <button
+                                    ref={backupCloseButton}
+                                    className="calendar-close"
+                                    type="button"
+                                    aria-label="バックアップを閉じる"
+                                    onClick={() => setBackupOpen(false)}
+                                >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                                </button>
+                            </div>
+                        </header>
+                        <section className="backup-section">
+                            <h3>書き出す</h3>
+                            <p>すべての日付ページとTodoをファイルに保存します。</p>
+                            <div className="backup-actions">
+                                <a className="backup-action" href="/api/backup/export?format=json" download>JSONで保存</a>
+                                <a className="backup-action" href="/api/backup/export?format=csv" download>CSVで保存</a>
+                            </div>
+                        </section>
+                        <section className="backup-section">
+                            <h3>復元する</h3>
+                            <p>JSONまたはCSVファイルを選択してください。</p>
+                            <label className={`backup-file${importing ? " is-disabled" : ""}`}>
+                                {importing ? "読み込み中..." : "ファイルを選択"}
+                                <input
+                                    className="sr-only"
+                                    type="file"
+                                    accept=".json,.csv,application/json,text/csv"
+                                    disabled={importing}
+                                    onChange={(event) => {
+                                        const file = event.target.files?.[0];
+                                        event.target.value = "";
+                                        if (file) void handleImport(file);
+                                    }}
+                                />
+                            </label>
+                            <fieldset className="backup-modes">
+                                <legend>復元方法</legend>
+                                <label>
+                                    <input
+                                        type="radio"
+                                        name="import-mode"
+                                        value="merge"
+                                        checked={importMode === "merge"}
+                                        onChange={() => setImportMode("merge")}
+                                    />
+                                    追加（同じTodoはスキップ）
+                                </label>
+                                <label>
+                                    <input
+                                        type="radio"
+                                        name="import-mode"
+                                        value="replace"
+                                        checked={importMode === "replace"}
+                                        onChange={() => setImportMode("replace")}
+                                    />
+                                    置き換え（既存をすべて削除）
+                                </label>
+                            </fieldset>
+                            {backupMessage && (
+                                <p className={`backup-message${backupError ? " is-error" : ""}`} role="status">
+                                    {backupMessage}
+                                </p>
+                            )}
+                        </section>
                     </section>
                 </div>
             )}
