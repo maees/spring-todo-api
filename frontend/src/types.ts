@@ -11,6 +11,11 @@ export type TodoDaySummary = {
     todoCount: number;
 };
 
+export type TrashTodo = Todo & {
+    date: string;
+    deletedAt: string | null;
+};
+
 export type BackupResult = {
     mode: "merge" | "replace";
     daysRestored: number;

@@ -8,13 +8,15 @@ datasource db {
 }
 
 model Todo {
-  id    BigInt  @id @default(autoincrement())
-  title String  @db.VarChar(255)
-  done  Boolean @default(false)
-  day   DateTime @db.Date
-  page  TodoDay @relation(fields: [day], references: [date], onDelete: Cascade)
+  id        BigInt    @id @default(autoincrement())
+  title     String    @db.VarChar(255)
+  done      Boolean   @default(false)
+  day       DateTime  @db.Date
+  page      TodoDay   @relation(fields: [day], references: [date], onDelete: Cascade)
+  deletedAt DateTime? @db.Timestamp(3)
 
   @@index([day, done, id])
+  @@index([deletedAt])
   @@map("todos")
 }
 

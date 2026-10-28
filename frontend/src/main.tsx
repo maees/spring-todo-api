@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { BackupResult, Todo, TodoDaySummary, TodoFilter } from "./types";
+import type { BackupResult, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
 import "./style.css";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -92,6 +92,9 @@ function TodoApp() {
     const [importing, setImporting] = useState(false);
     const [backupMessage, setBackupMessage] = useState("");
     const [backupError, setBackupError] = useState(false);
+    const [trashOpen, setTrashOpen] = useState(false);
+    const [trashItems, setTrashItems] = useState<TrashTodo[]>([]);
+    const [trashLoading, setTrashLoading] = useState(false);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [title, setTitle] = useState("");
@@ -108,6 +111,9 @@ function TodoApp() {
     const backupCloseButton = useRef<HTMLButtonElement>(null);
     const backupTrigger = useRef<HTMLButtonElement>(null);
     const wasBackupOpen = useRef(false);
+    const trashCloseButton = useRef<HTMLButtonElement>(null);
+    const trashTrigger = useRef<HTMLButtonElement>(null);
+    const wasTrashOpen = useRef(false);
     const selectedDayTab = useRef<HTMLButtonElement>(null);
     const { today: todayDate, selected: selectedDate } = dayState;
     const isReadOnly = selectedDate !== todayDate;
@@ -147,6 +153,28 @@ function TodoApp() {
         }
         wasBackupOpen.current = backupOpen;
     }, [backupOpen]);
+
+    useEffect(() => {
+        if (trashOpen) {
+            trashCloseButton.current?.focus();
+            let active = true;
+            setTrashLoading(true);
+            request<TrashTodo[]>("/api/todos/trash")
+                .then((data) => {
+                    if (active) setTrashItems(data);
+                })
+                .catch(() => {
+                    if (active) setMessage("ゴミ箱を読み込めませんでした。");
+                })
+                .finally(() => {
+                    if (active) setTrashLoading(false);
+                });
+            return () => { active = false; };
+        } else if (wasTrashOpen.current) {
+            trashTrigger.current?.focus();
+        }
+        wasTrashOpen.current = trashOpen;
+    }, [trashOpen]);
 
     useEffect(() => {
         selectedDayTab.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
@@ -296,6 +324,39 @@ function TodoApp() {
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを削除できませんでした。");
+        }
+    }
+
+    async function restoreFromTrash(item: TrashTodo) {
+        try {
+            await request<Todo>(`/api/todos/${item.id}/restore`, { method: "POST" });
+            setTrashItems((current) => current.filter((trash) => trash.id !== item.id));
+            setReload((value) => value + 1);
+            setMessage("Todoを元に戻しました。");
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Todoを元に戻せませんでした。");
+        }
+    }
+
+    async function forceDelete(item: TrashTodo) {
+        if (!window.confirm(`「${item.title}」を完全に削除しますか？`)) return;
+        try {
+            await request<null>(`/api/todos/${item.id}/force`, { method: "DELETE" });
+            setTrashItems((current) => current.filter((trash) => trash.id !== item.id));
+            setMessage("Todoを完全に削除しました。");
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Todoを完全に削除できませんでした。");
+        }
+    }
+
+    async function emptyTrash() {
+        if (!window.confirm("ゴミ箱を空にしますか？この操作は取り消せません。")) return;
+        try {
+            await request<null>("/api/todos/trash", { method: "DELETE" });
+            setTrashItems([]);
+            setMessage("ゴミ箱を空にしました。");
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "ゴミ箱を空にできませんでした。");
         }
     }
 
@@ -526,18 +587,28 @@ function TodoApp() {
 
                 <footer className="panel-footer">
                     <p>{total === 0 ? "まだTodoはありません" : `${total}件中 ${done}件を完了しました`}</p>
-                    <button
-                        ref={backupTrigger}
-                        className="backup-open"
-                        type="button"
-                        onClick={() => {
-                            setBackupMessage("");
-                            setBackupError(false);
-                            setBackupOpen(true);
-                        }}
-                    >
-                        バックアップ / 復元
-                    </button>
+                    <div className="footer-actions">
+                        <button
+                            ref={trashTrigger}
+                            className="backup-open"
+                            type="button"
+                            onClick={() => setTrashOpen(true)}
+                        >
+                            ゴミ箱
+                        </button>
+                        <button
+                            ref={backupTrigger}
+                            className="backup-open"
+                            type="button"
+                            onClick={() => {
+                                setBackupMessage("");
+                                setBackupError(false);
+                                setBackupOpen(true);
+                            }}
+                        >
+                            バックアップ / 復元
+                        </button>
+                    </div>
                 </footer>
             </section>
             {calendarOpen && (
@@ -621,6 +692,70 @@ function TodoApp() {
                             <span><i aria-hidden="true" />ページあり</span>
                             <button type="button" onClick={() => selectDay(todayDate)}>今日へ戻る</button>
                         </footer>
+                    </section>
+                </div>
+            )}
+            {trashOpen && (
+                <div className="calendar-overlay">
+                    <button
+                        className="calendar-backdrop"
+                        type="button"
+                        aria-label="ゴミ箱を閉じる"
+                        onClick={() => setTrashOpen(false)}
+                    />
+                    <section
+                        className="calendar-sheet backup-sheet"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="trash-title"
+                        onKeyDown={(event) => handleDialogKeyDown(event, () => setTrashOpen(false))}
+                    >
+                        <header className="calendar-header">
+                            <div>
+                                <p>データ管理</p>
+                                <h2 id="trash-title">ゴミ箱</h2>
+                            </div>
+                            <div className="calendar-controls">
+                                {trashItems.length > 0 && (
+                                    <button
+                                        className="trash-empty"
+                                        type="button"
+                                        onClick={() => void emptyTrash()}
+                                    >
+                                        ゴミ箱を空にする
+                                    </button>
+                                )}
+                                <button
+                                    ref={trashCloseButton}
+                                    className="calendar-close"
+                                    type="button"
+                                    aria-label="ゴミ箱を閉じる"
+                                    onClick={() => setTrashOpen(false)}
+                                >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                                </button>
+                            </div>
+                        </header>
+                        {trashLoading ? (
+                            <p className="trash-state">読み込み中...</p>
+                        ) : trashItems.length === 0 ? (
+                            <p className="trash-state">ゴミ箱は空です</p>
+                        ) : (
+                            <ul className="trash-list">
+                                {trashItems.map((item) => (
+                                    <li className="trash-item" key={item.id}>
+                                        <div>
+                                            <p className="trash-title">{item.title}</p>
+                                            <p className="trash-meta">{item.date}・{item.done ? "完了" : "未完了"}</p>
+                                        </div>
+                                        <div className="trash-actions">
+                                            <button type="button" onClick={() => void restoreFromTrash(item)}>元に戻す</button>
+                                            <button type="button" className="is-danger" onClick={() => void forceDelete(item)}>完全に削除</button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </section>
                 </div>
             )}
