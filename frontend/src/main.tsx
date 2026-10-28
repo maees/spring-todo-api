@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { BackupResult, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
+import type { BackupResult, Routine, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
 import "./style.css";
+import "./celebrate.css";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(url, {
@@ -77,6 +78,76 @@ function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>, close: () => voi
     }
 }
 
+function playCelebrate() {
+    try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) return;
+        const context = new AudioContextClass();
+        const now = context.currentTime;
+        const notes = [659.25, 783.99, 1046.5];
+        notes.forEach((frequency, index) => {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            oscillator.type = "triangle";
+            oscillator.frequency.setValueAtTime(frequency, now + index * 0.08);
+            gain.gain.setValueAtTime(0.0001, now + index * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + index * 0.08 + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.08 + 0.22);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+            oscillator.start(now + index * 0.08);
+            oscillator.stop(now + index * 0.08 + 0.24);
+        });
+    } catch {
+        // 音が鳴らなくても演出は続ける
+    }
+}
+
+function CelebrateModal({ open, closing, onClose }: { open: boolean; closing: boolean; onClose: () => void }) {
+    const confetti = useRef(
+        Array.from({ length: 36 }, (_, index) => ({
+            left: 50 + Math.cos((index / 36) * Math.PI * 2) * 38,
+            top: 50 + Math.sin((index / 36) * Math.PI * 2) * 28,
+            x: (Math.random() - 0.5) * 320,
+            y: (Math.random() - 0.2) * 420,
+            rotate: Math.random() * 720
+        }))
+    );
+
+    useEffect(() => {
+        if (open && !closing) playCelebrate();
+    }, [open, closing]);
+
+    if (!open) return null;
+
+    return (
+        <div className={`celebrate-overlay${closing ? " is-closing" : ""}`} role="dialog" aria-modal="true" aria-labelledby="celebrate-title">
+            <button className="celebrate-backdrop" type="button" aria-label="閉じる" onClick={onClose} />
+            <div className="celebrate-stage">
+                <div className="celebrate-burst" aria-hidden="true" />
+                {confetti.current.map((piece, index) => (
+                    <span
+                        className="celebrate-confetti"
+                        aria-hidden="true"
+                        key={index}
+                        style={{
+                            left: `${piece.left}%`,
+                            top: `${piece.top}%`,
+                            "--x": `${piece.x}px`,
+                            "--y": `${piece.y}px`,
+                            "--r": `${piece.rotate}deg`
+                        } as CSSProperties}
+                    />
+                ))}
+                <h2 className="celebrate-title" id="celebrate-title">よくやった！<em>今日、全部完了</em></h2>
+                <p className="celebrate-subtitle">小さな積み重ねが、大きな一歩になる</p>
+                <button className="celebrate-good" type="button" onClick={onClose}>good</button>
+            </div>
+        </div>
+    );
+}
+
+
 function TodoApp() {
     const [dayState, setDayState] = useState(() => {
         const today = getTokyoDateKey();
@@ -95,6 +166,9 @@ function TodoApp() {
     const [trashOpen, setTrashOpen] = useState(false);
     const [trashItems, setTrashItems] = useState<TrashTodo[]>([]);
     const [trashLoading, setTrashLoading] = useState(false);
+    const [celebrateOpen, setCelebrateOpen] = useState(false);
+    const [celebrateClosing, setCelebrateClosing] = useState(false);
+    const [celebratedKey, setCelebratedKey] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [title, setTitle] = useState("");
@@ -114,6 +188,7 @@ function TodoApp() {
     const trashCloseButton = useRef<HTMLButtonElement>(null);
     const trashTrigger = useRef<HTMLButtonElement>(null);
     const wasTrashOpen = useRef(false);
+    const reviewCloseButton = useRef<HTMLButtonElement>(null);
     const selectedDayTab = useRef<HTMLButtonElement>(null);
     const { today: todayDate, selected: selectedDate } = dayState;
     const isReadOnly = selectedDate !== todayDate;
@@ -137,13 +212,24 @@ function TodoApp() {
     }, [todayDate]);
 
     useEffect(() => {
-        if (calendarOpen) {
-            calendarCloseButton.current?.focus();
-        } else if (wasCalendarOpen.current) {
-            calendarTrigger.current?.focus();
+        if (!isReadOnly || selectedDate !== todayDate) return;
+        const celebrateKey = `${todayDate}:all-done`;
+        if (celebratedKey === celebrateKey) return;
+        if (todos.length === 0) return;
+        if (todos.every((todo) => todo.done)) {
+            setCelebratedKey(celebrateKey);
+            setCelebrateClosing(false);
+            setCelebrateOpen(true);
         }
-        wasCalendarOpen.current = calendarOpen;
-    }, [calendarOpen]);
+    }, [todos, isReadOnly, selectedDate, todayDate, celebratedKey]);
+
+    function closeCelebrate() {
+        setCelebrateClosing(true);
+        window.setTimeout(() => {
+            setCelebrateOpen(false);
+            setCelebrateClosing(false);
+        }, 250);
+    }
 
     useEffect(() => {
         if (backupOpen) {
@@ -872,6 +958,7 @@ function TodoApp() {
                     </section>
                 </div>
             )}
+            <CelebrateModal open={celebrateOpen} closing={celebrateClosing} onClose={closeCelebrate} />
         </main>
     );
 }
