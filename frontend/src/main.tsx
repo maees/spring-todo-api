@@ -252,7 +252,7 @@ function TodoApp() {
         try {
             await request<Todo>("/api/todos", {
                 method: "POST",
-                body: JSON.stringify({ title: trimmedTitle, done: false })
+                body: JSON.stringify({ title: trimmedTitle, done: false, important: false })
             });
             setTitle("");
             setReload((value) => value + 1);
@@ -267,7 +267,7 @@ function TodoApp() {
         try {
             await request<Todo>(`/api/todos/${todo.id}`, {
                 method: "PUT",
-                body: JSON.stringify({ title: todo.title, done: !todo.done })
+                body: JSON.stringify({ title: todo.title, done: !todo.done, important: todo.important ?? false })
             });
             setReload((value) => value + 1);
         } catch (error) {
@@ -289,7 +289,7 @@ function TodoApp() {
         try {
             await request<Todo>(`/api/todos/${todo.id}`, {
                 method: "PUT",
-                body: JSON.stringify({ title: trimmedTitle, done: todo.done })
+                body: JSON.stringify({ title: trimmedTitle, done: todo.done, important: todo.important ?? false })
             });
             setEditingTodoId(null);
             setEditingTitle("");
@@ -324,6 +324,19 @@ function TodoApp() {
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを削除できませんでした。");
+        }
+    }
+
+    async function toggleImportant(todo: Todo) {
+        setMessage("");
+        try {
+            await request<Todo>(`/api/todos/${todo.id}`, {
+                method: "PUT",
+                body: JSON.stringify({ title: todo.title, done: todo.done, important: !(todo.important ?? false) })
+            });
+            setReload((value) => value + 1);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
         }
     }
 
@@ -515,7 +528,7 @@ function TodoApp() {
                 {!loading && total > 0 && (
                     <ul className="todo-list" aria-live="polite">
                         {todos.map((todo) => (
-                            <li className={`todo-item${todo.done ? " is-done" : ""}`} key={todo.id}>
+                            <li className={`todo-item${todo.done ? " is-done" : ""}${todo.important ? " is-important" : ""}`} key={todo.id}>
                                 <button
                                     className="check-button"
                                     type="button"
@@ -560,6 +573,17 @@ function TodoApp() {
                                                 }}
                                             >
                                                 {todo.title}
+                                            </button>
+                                        )}
+                                        {!isReadOnly && (
+                                            <button
+                                                className={`pin-button${todo.important ? " is-active" : ""}`}
+                                                type="button"
+                                                aria-pressed={todo.important ?? false}
+                                                aria-label={`「${todo.title}」を${todo.important ? "ピン留め解除" : "ピン留め"}する`}
+                                                onClick={() => toggleImportant(todo)}
+                                            >
+                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                             </button>
                                         )}
                                         <button

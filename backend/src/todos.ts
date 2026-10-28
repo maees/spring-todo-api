@@ -7,17 +7,20 @@ import { dateKeyToDate, dateToKey, ensureCurrentDayPage, getTodayDateKey } from 
 const todoResponse = z.object({
     id: z.string(),
     title: z.string(),
-    done: z.boolean()
+    done: z.boolean(),
+    important: z.boolean().optional().default(false)
 });
 
 const createTodoSchema = z.object({
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
-    done: z.boolean().optional().default(false)
+    done: z.boolean().optional().default(false),
+    important: z.boolean().optional().default(false)
 });
 
 const updateTodoSchema = z.object({
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
-    done: z.boolean()
+    done: z.boolean(),
+    important: z.boolean().optional()
 });
 
 const todoQuerySchema = z.object({
@@ -42,11 +45,11 @@ const validationResponse = (
     }
 };
 
-function serializeTodo(todo: { id: bigint; title: string; done: boolean }) {
-    return todoResponse.parse({ ...todo, id: todo.id.toString() });
+function serializeTodo(todo: { id: bigint; title: string; done: boolean; important?: boolean }) {
+    return todoResponse.parse({ ...todo, id: todo.id.toString(), important: todo.important ?? false });
 }
 
-function trashItem(todo: { id: bigint; title: string; done: boolean; day: Date; deletedAt: Date | null }) {
+function trashItem(todo: { id: bigint; title: string; done: boolean; important?: boolean; day: Date; deletedAt: Date | null }) {
     return {
         ...serializeTodo(todo),
         date: dateToKey(todo.day),
@@ -71,7 +74,7 @@ todos.get("/", zValidator("query", todoQuerySchema, validationResponse), async (
             deletedAt: null,
             ...(done === undefined ? {} : { done: done === "true" })
         },
-        orderBy: [{ done: "asc" }, { id: "asc" }]
+        orderBy: [{ important: "desc" }, { done: "asc" }, { id: "asc" }]
     });
     return c.json(result.map(serializeTodo));
 });
@@ -95,7 +98,7 @@ todos.get("/:id", zValidator("param", todoParamsSchema, validationResponse), asy
 todos.post("/", zValidator("json", createTodoSchema, validationResponse), async (c) => {
     const input = c.req.valid("json");
     await ensureCurrentDayPage();
-    const todo = await prisma.todo.create({ data: { ...input, day: dateKeyToDate(getTodayDateKey()), deletedAt: null } });
+    const todo = await prisma.todo.create({ data: { title: input.title, done: input.done, important: input.important, day: dateKeyToDate(getTodayDateKey()), deletedAt: null } });
     return c.json(serializeTodo(todo), 201);
 });
 

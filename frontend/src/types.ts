@@ -2,6 +2,7 @@ export type Todo = {
     id: string;
     title: string;
     done: boolean;
+    important?: boolean;
 };
 
 export type TodoFilter = "all" | "open" | "done";
