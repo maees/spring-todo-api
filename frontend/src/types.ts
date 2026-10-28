@@ -23,3 +23,10 @@ export type BackupResult = {
     todosCreated: number;
     todosSkipped: number;
 };
+
+export type Routine = {
+    id: string;
+    title: string;
+    enabled: boolean;
+    daysOfWeek: number[];
+};

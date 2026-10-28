@@ -26,3 +26,28 @@ model TodoDay {
 
   @@map("todo_days")
 }
+
+model Routine {
+  id        String   @id @default(cuid())
+  title     String   @db.VarChar(255)
+  enabled   Boolean  @default(true)
+  daysOfWeek String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  history   RoutineHistory[]
+
+  @@map("routines")
+}
+
+model RoutineHistory {
+  id        String   @id @default(cuid())
+  routineId String
+  routine   Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  dateKey   String   @db.VarChar(10)
+  todoId    BigInt
+  createdAt DateTime @default(now())
+
+  @@unique([routineId, dateKey])
+  @@index([dateKey])
+  @@map("routine_history")
+}
