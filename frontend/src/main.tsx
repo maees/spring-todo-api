@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import type { BackupResult, Routine, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
 import "./style.css";
 import "./celebrate.css";
+import "./dream-details.css";
+import "./cafe-details.css";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(url, {
@@ -148,7 +150,56 @@ function CelebrateModal({ open, closing, onClose }: { open: boolean; closing: bo
 }
 
 
+function RowActions({ todo, onPin, onDelete }: { todo: Todo; onPin: () => void; onDelete: () => void }) {
+    const detailsRef = useRef<HTMLDetailsElement>(null);
+    const close = (restoreFocus = false) => {
+        if (detailsRef.current) {
+            detailsRef.current.open = false;
+            if (restoreFocus) detailsRef.current.querySelector("summary")?.focus();
+        }
+    };
+    useEffect(() => {
+        const outside = (event: PointerEvent) => {
+            if (!detailsRef.current?.contains(event.target as Node)) close();
+        };
+        document.addEventListener("pointerdown", outside);
+        return () => document.removeEventListener("pointerdown", outside);
+    }, []);
+    return (
+        <details className="row-actions" ref={detailsRef}
+            onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close(); }}
+            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(true); } }}>
+            <summary aria-label={`「${todo.title}」の操作`} title="項目の操作"><span aria-hidden="true">⋮</span></summary>
+            <div className="row-actions-popover">
+                <button type="button" onClick={() => { close(true); onPin(); }}>{todo.important ? "ピン留め解除" : "ピン留め"}</button>
+                <button type="button" className="row-action-delete" onClick={() => { close(true); onDelete(); }}>削除</button>
+            </div>
+        </details>
+    );
+}
+
+function UiIcon({ name }: { name: "settings" | "trash" | "backup" }) {
+    const paths = {
+        settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
+        trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5",
+        backup: "M12 15V3m-4 4 4-4 4 4M5 13v7h14v-7"
+    };
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+type Theme = "dream" | "cafe";
+
 function TodoApp() {
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [theme, setTheme] = useState<Theme>(() => {
+        try { return localStorage.getItem("todo-theme") === "cafe" ? "cafe" : "dream"; }
+        catch { return "dream"; }
+    });
+    useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "cafe" ? "#214d3b" : "#c5b1dd");
+        try { localStorage.setItem("todo-theme", theme); } catch { /* Theme still works when storage is unavailable. */ }
+    }, [theme]);
     const [dayState, setDayState] = useState(() => {
         const today = getTokyoDateKey();
         return { today, selected: today };
@@ -176,6 +227,14 @@ function TodoApp() {
     const [editingTitle, setEditingTitle] = useState("");
     const [savingEdit, setSavingEdit] = useState(false);
     const [reload, setReload] = useState(0);
+    const [deletedTodos, setDeletedTodos] = useState<Todo[]>([]);
+    const [undoBusy, setUndoBusy] = useState(false);
+    const [completion, setCompletion] = useState<{ id: string; key: number } | null>(null);
+    useEffect(() => {
+        if (!completion) return;
+        const timer = window.setTimeout(() => setCompletion(null), 1100);
+        return () => window.clearTimeout(timer);
+    }, [completion]);
     const titleInput = useRef<HTMLInputElement>(null);
     const editInput = useRef<HTMLInputElement>(null);
     const editForm = useRef<HTMLFormElement>(null);
@@ -355,6 +414,7 @@ function TodoApp() {
                 method: "PUT",
                 body: JSON.stringify({ title: todo.title, done: !todo.done, important: todo.important ?? false })
             });
+            if (!todo.done) setCompletion({ id: todo.id, key: Date.now() });
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
@@ -403,14 +463,28 @@ function TodoApp() {
     }
 
     async function handleDelete(todo: Todo) {
-        if (!window.confirm(`「${todo.title}」を削除しますか？`)) return;
         setMessage("");
         try {
             await request<null>(`/api/todos/${todo.id}`, { method: "DELETE" });
+            setDeletedTodos((current) => [...current.filter((item) => item.id !== todo.id), todo]);
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを削除できませんでした。");
         }
+    }
+
+    async function undoDelete() {
+        const todo = deletedTodos[deletedTodos.length - 1];
+        if (!todo || undoBusy) return;
+        setUndoBusy(true);
+        try {
+            await request<Todo>(`/api/todos/${todo.id}/restore`, { method: "POST" });
+            setDeletedTodos((current) => current.filter((item) => item.id !== todo.id));
+            setTrashItems((current) => current.filter((item) => item.id !== todo.id));
+            setReload((value) => value + 1);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "元に戻せませんでした。");
+        } finally { setUndoBusy(false); }
     }
 
     async function toggleImportant(todo: Todo) {
@@ -517,11 +591,19 @@ function TodoApp() {
 
     return (
         <main className="app-shell">
-            <section className="hero" aria-labelledby="page-title">
-                <p className="eyebrow">BUN + HONO TODO</p>
-                <h1 id="page-title">今日を、<br /><em>ひとつずつ。</em></h1>
-                <p className="hero-copy">小さな完了を積み重ねよう。</p>
-                <div className="shape shape-sun" aria-hidden="true" />
+            <section className="hero" aria-label="ホーム">
+                <h1 className="sr-only">今日のリスト</h1>
+                {theme === "dream" ? (
+                    <svg className="dream-sky" viewBox="0 0 110 112" fill="none" aria-hidden="true" focusable="false">
+                        <path className="dream-moon" d="M73 12C57 13 47 27 51 42c4 16 24 23 37 12-17 1-29-14-23-29 2-5 5-9 8-13Z" />
+                        <path className="dream-cloud dream-cloud-back" d="M39 70c-8-1-11-11-5-16 3-3 7-3 10-2 0-10 13-15 20-7 7-4 16 1 16 9 12-1 16 16 3 18H39Z" />
+                        <path className="dream-cloud" d="M18 92C4 91 5 73 18 72c-1-14 19-20 26-8 9-6 21 0 21 11 15-2 19 17 4 19H18Z" />
+                        <path className="dream-star" d="m24 18 3 8 8 3-8 3-3 8-3-8-8-3 8-3 3-8Zm66 58 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Z" />
+                        <circle cx="92" cy="29" r="2" fill="#dba3ce" />
+                        <circle cx="12" cy="53" r="2" fill="#9dcee6" />
+                        <path d="m76 99 2 4 4 1-4 2-2 4-1-4-4-2 4-1 1-4Z" fill="#b7a0d6" />
+                    </svg>
+                ) : <div className="shape shape-sun" aria-hidden="true" />}
                 <div className="shape shape-line" aria-hidden="true" />
             </section>
 
@@ -559,7 +641,7 @@ function TodoApp() {
                 <header className="panel-header">
                     <div>
                         <p className="date-label">{formatDay(selectedDate)}</p>
-                        <h2>やること</h2>
+
                     </div>
                     <div
                         className="progress-ring"
@@ -572,9 +654,10 @@ function TodoApp() {
                 </header>
 
                 {isReadOnly ? (
-                    <p className="archive-notice">過去の日付のページは閲覧専用です</p>
+                    <p className="archive-notice" title="閲覧専用"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg><span className="sr-only">過去の日付のページは閲覧専用です</span></p>
                 ) : (
                     <form className="todo-form" onSubmit={handleSubmit}>
+                        <svg className="compose-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16-1 4 4-1L20 7l-3-3L5 16Zm10-10 3 3" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         <label className="sr-only" htmlFor="todo-title">新しいTodo</label>
                         <input
                             ref={titleInput}
@@ -582,13 +665,13 @@ function TodoApp() {
                             name="title"
                             type="text"
                             maxLength={255}
-                            placeholder="新しいTodoを入力"
+                            placeholder="追加する…"
                             autoComplete="off"
                             required
                             value={title}
                             onChange={(event) => setTitle(event.target.value)}
                         />
-                        <button type="submit" className="add-button"><span aria-hidden="true">＋</span>追加</button>
+                        <button type="submit" className="add-button" aria-label="追加" title="追加"><span aria-hidden="true">＋</span></button>
                     </form>
                 )}
                 <p className="form-message" aria-live="polite">{message}</p>
@@ -601,16 +684,17 @@ function TodoApp() {
                                 className={`filter-button${filter === value ? " is-active" : ""}`}
                                 type="button"
                                 aria-pressed={filter === value}
+                                title={label}
                                 onClick={() => setFilter(value)}
                             >
                                 {label}
                             </button>
                         ))}
                     </div>
-                    <p className="count-label">{total}件</p>
+
                 </div>
 
-                {loading && <div className="loading" role="status">読み込み中…</div>}
+                {loading && <div className="loading" role="status"><span className="loading-orbit" aria-hidden="true" /><span className="sr-only">読み込み中</span></div>}
                 {!loading && total > 0 && (
                     <ul className="todo-list" aria-live="polite">
                         {todos.map((todo) => (
@@ -661,26 +745,8 @@ function TodoApp() {
                                                 {todo.title}
                                             </button>
                                         )}
-                                        {!isReadOnly && (
-                                            <button
-                                                className={`pin-button${todo.important ? " is-active" : ""}`}
-                                                type="button"
-                                                aria-pressed={todo.important ?? false}
-                                                aria-label={`「${todo.title}」を${todo.important ? "ピン留め解除" : "ピン留め"}する`}
-                                                onClick={() => toggleImportant(todo)}
-                                            >
-                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                            </button>
-                                        )}
-                                        <button
-                                            className="delete-button"
-                                            type="button"
-                                            aria-label={`「${todo.title}」を削除する`}
-                                            disabled={isReadOnly}
-                                            onClick={() => handleDelete(todo)}
-                                        >
-                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                        </button>
+                                        {todo.important && <span className="pinned-mark" role="img" aria-label="ピン留め中"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+                                        {!isReadOnly && <RowActions todo={todo} onPin={() => { void toggleImportant(todo); }} onDelete={() => { void handleDelete(todo); }} />}
                                     </>
                                 )}
                             </li>
@@ -689,25 +755,28 @@ function TodoApp() {
                 )}
                 {!loading && total === 0 && (
                     <div className="empty-state">
-                        <span className="empty-mark" aria-hidden="true">✓</span>
-                        <h3>ここから始めよう</h3>
-                        <p>上の入力欄から、最初のTodoを追加できます。</p>
+                        <button className="empty-compose" type="button" aria-label="最初の項目を入力" onClick={() => titleInput.current?.focus()} disabled={isReadOnly}>
+                            <svg viewBox="0 0 120 84" fill="none" aria-hidden="true"><rect x="20" y="8" width="80" height="68" rx="14" stroke="currentColor" strokeWidth="2" /><circle cx="38" cy="29" r="5" stroke="currentColor" strokeWidth="2" /><path d="M53 29h30M53 46h25M33 46h10M33 61h42" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                        </button>
                     </div>
                 )}
 
                 <footer className="panel-footer">
-                    <p>{total === 0 ? "まだTodoはありません" : `${total}件中 ${done}件を完了しました`}</p>
+                    <p className="sr-only">{total}件中 {done}件完了</p>
                     <div className="footer-actions">
+                        <button id="settings-trigger" className="backup-open" type="button" aria-expanded={settingsOpen} aria-controls="theme-settings" aria-label="設定" title="設定" onClick={() => setSettingsOpen(!settingsOpen)}><UiIcon name="settings" /></button>
                         <button
                             ref={trashTrigger}
+                            aria-label="ゴミ箱" title="ゴミ箱"
                             className="backup-open"
                             type="button"
                             onClick={() => setTrashOpen(true)}
                         >
-                            ゴミ箱
+                            <UiIcon name="trash" />
                         </button>
                         <button
                             ref={backupTrigger}
+                            aria-label="バックアップと復元" title="バックアップと復元"
                             className="backup-open"
                             type="button"
                             onClick={() => {
@@ -716,10 +785,33 @@ function TodoApp() {
                                 setBackupOpen(true);
                             }}
                         >
-                            バックアップ / 復元
+                            <UiIcon name="backup" />
                         </button>
                     </div>
                 </footer>
+                {settingsOpen && (
+                    <section className="theme-settings" id="theme-settings" aria-labelledby="settings-title" onKeyDown={(event) => { if (event.key === "Escape") { setSettingsOpen(false); document.getElementById("settings-trigger")?.focus(); } }}>
+                        <header className="settings-header">
+                            <h3 id="settings-title">設定</h3>
+                            <button type="button" className="settings-close" aria-label="設定を閉じる" onClick={() => { setSettingsOpen(false); document.getElementById("settings-trigger")?.focus(); }}>×</button>
+                        </header>
+                        <h4 id="theme-settings-title">きせかえ</h4>
+
+                        <div className="theme-options">
+                            {([
+                                { id: "dream", name: "夢かわ", description: "星とパステルのふんわりカラー" },
+                                { id: "cafe", name: "レトロ喫茶", description: "クリームと深緑の紙模様" }
+                            ] as const).map((option) => (
+                                <button key={option.id} type="button" className={`theme-option theme-option--${option.id}`} aria-pressed={theme === option.id} onClick={() => setTheme(option.id)}>
+                                    <span className="theme-preview" aria-hidden="true"><i /><i /><i /></span>
+                                    <strong>{option.name}{theme === option.id ? " ✓" : ""}</strong>
+
+                                </button>
+                            ))}
+                        </div>
+                        <p className="sr-only" role="status">{theme === "dream" ? "夢かわ" : "レトロ喫茶"}を選択中</p>
+                    </section>
+                )}
             </section>
             {calendarOpen && (
                 <div className="calendar-overlay">
@@ -956,6 +1048,19 @@ function TodoApp() {
                             )}
                         </section>
                     </section>
+                </div>
+            )}
+            {completion && (
+                <div key={completion.key} className={`completion-flash completion-flash--${theme}`} role="status">
+                    <span aria-hidden="true">{theme === "dream" ? "✧ ✦ ✧" : "✓"}</span>
+                    <span className="sr-only">完了しました</span>
+                </div>
+            )}
+            {deletedTodos.length > 0 && (
+                <div className="undo-toast">
+                    <span role="status">{deletedTodos.length === 1 ? "削除しました" : `${deletedTodos.length}件削除しました`}</span>
+                    <button type="button" disabled={undoBusy} onClick={() => void undoDelete()}>元に戻す</button>
+                    <button type="button" className="undo-dismiss" aria-label="通知を閉じる" disabled={undoBusy} onClick={() => setDeletedTodos([])}>×</button>
                 </div>
             )}
             <CelebrateModal open={celebrateOpen} closing={celebrateClosing} onClose={closeCelebrate} />
