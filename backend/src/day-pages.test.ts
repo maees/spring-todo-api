@@ -10,12 +10,17 @@ type FakeTransaction = {
         findFirst: (args: { where: { date: { lt: Date } }; orderBy: { date: "desc" } }) => Promise<{ date: Date } | null>;
     };
     todo: {
-        findMany: (args: { where: { day: Date; done: false }; select: { title: true } }) => Promise<{ title: string }[]>;
-        createMany: (args: { data: { title: string; done: false; day: Date }[] }) => Promise<{ count: number }>;
+        findMany: (args: {
+            where: { day: Date; done: false; deletedAt: null };
+            select: { title: true; important: true };
+        }) => Promise<{ title: string; important: boolean }[]>;
+        createMany: (args: {
+            data: { title: string; done: false; important: boolean; carriedOver: true; day: Date }[];
+        }) => Promise<{ count: number }>;
     };
 };
 
-type FakeTodo = { title: string; done: boolean; day: Date };
+type FakeTodo = { title: string; done: boolean; important: boolean; carriedOver: boolean; day: Date };
 
 function createFakeDatabase(pageKeys: string[], todos: FakeTodo[]) {
     const pages = pageKeys.map(dateKeyToDate);
@@ -40,7 +45,7 @@ function createFakeDatabase(pageKeys: string[], todos: FakeTodo[]) {
         todo: {
             findMany: async ({ where }) => todos
                 .filter((todo) => dateToKey(todo.day) === dateToKey(where.day) && !todo.done)
-                .map(({ title }) => ({ title })),
+                .map(({ title, important }) => ({ title, important })),
             createMany: async ({ data }) => {
                 todos.push(...data);
                 return { count: data.length };
@@ -64,9 +69,9 @@ describe("日付ページ", () => {
         const { database, pages, todos } = createFakeDatabase(
             ["2026-10-20", "2026-10-23"],
             [
-                { title: "古いページからは引き継がない", done: false, day: dateKeyToDate("2026-10-20") },
-                { title: "未完了タスク", done: false, day: dateKeyToDate("2026-10-23") },
-                { title: "完了済みタスク", done: true, day: dateKeyToDate("2026-10-23") }
+                { title: "古いページからは引き継がない", done: false, important: false, carriedOver: false, day: dateKeyToDate("2026-10-20") },
+                { title: "未完了タスク", done: false, important: true, carriedOver: false, day: dateKeyToDate("2026-10-23") },
+                { title: "完了済みタスク", done: true, important: false, carriedOver: false, day: dateKeyToDate("2026-10-23") }
             ]
         );
 
@@ -75,7 +80,7 @@ describe("日付ページ", () => {
         const nextDayTodos = todos.filter((todo) => dateToKey(todo.day) === "2026-10-24");
         expect(pages.map(dateToKey)).toContain("2026-10-24");
         expect(nextDayTodos).toEqual([
-            { title: "未完了タスク", done: false, day: dateKeyToDate("2026-10-24") }
+            { title: "未完了タスク", done: false, important: true, carriedOver: true, day: dateKeyToDate("2026-10-24") }
         ]);
 
         await ensureDayPage("2026-10-24", database);

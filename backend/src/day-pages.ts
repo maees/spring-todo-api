@@ -36,13 +36,19 @@ export async function ensureDayPage(dateKey: string, database: typeof prisma = p
 
         if (previousPage) {
             const unfinishedTodos = await transaction.todo.findMany({
-                where: { day: previousPage.date, done: false },
-                select: { title: true }
+                where: { day: previousPage.date, done: false, deletedAt: null },
+                select: { title: true, important: true }
             });
 
             if (unfinishedTodos.length > 0) {
                 await transaction.todo.createMany({
-                    data: unfinishedTodos.map(({ title }) => ({ title, done: false, day }))
+                    data: unfinishedTodos.map(({ title, important }) => ({
+                        title,
+                        done: false,
+                        important,
+                        carriedOver: true,
+                        day
+                    }))
                 });
             }
         }

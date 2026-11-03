@@ -3,6 +3,7 @@ export type Todo = {
     title: string;
     done: boolean;
     important?: boolean;
+    carriedOver?: boolean;
 };
 
 export type TodoFilter = "all" | "open" | "done";
@@ -10,6 +11,10 @@ export type TodoFilter = "all" | "open" | "done";
 export type TodoDaySummary = {
     date: string;
     todoCount: number;
+    doneCount: number;
+    carriedOverCount: number;
+    percent: number;
+    note: string;
 };
 
 export type TrashTodo = Todo & {
@@ -30,4 +35,6 @@ export type Routine = {
     title: string;
     enabled: boolean;
     daysOfWeek: number[];
+    intervalDays: number;
+    startDate?: string;
 };

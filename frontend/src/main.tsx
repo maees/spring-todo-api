@@ -1,20 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { BackupResult, Routine, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
+import type { BackupResult, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
+import { request } from "./api";
+import { ReviewModal } from "./ReviewModal";
+import { RoutinePanel } from "./RoutinePanel";
 import "./style.css";
 import "./celebrate.css";
+import "./review.css";
 import "./dream-details.css";
 import "./cafe-details.css";
-
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(url, {
-        headers: { "Content-Type": "application/json", ...options.headers },
-        ...options
-    });
-    if (response.ok) return (response.status === 204 ? null : await response.json()) as T;
-    const error: { errors?: string[] } = await response.json().catch(() => ({}));
-    throw new Error(error.errors?.[0] || "処理に失敗しました。もう一度試してください。");
-}
 
 const filters: { value: TodoFilter; label: string }[] = [
     { value: "all", label: "すべて" },
@@ -31,6 +25,20 @@ function getTokyoDateKey(): string {
     }).formatToParts(new Date());
     const value = (type: string) => parts.find((part) => part.type === type)!.value;
     return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function getTokyoHour(): number {
+    return Number(new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Tokyo",
+        hour: "2-digit",
+        hourCycle: "h23"
+    }).format(new Date()));
+}
+
+function shiftDateKey(dateKey: string, amount: number): string {
+    const date = new Date(`${dateKey}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + amount);
+    return date.toISOString().slice(0, 10);
 }
 
 function formatDay(dateKey: string): string {
@@ -178,11 +186,13 @@ function RowActions({ todo, onPin, onDelete }: { todo: Todo; onPin: () => void; 
     );
 }
 
-function UiIcon({ name }: { name: "settings" | "trash" | "backup" }) {
+function UiIcon({ name }: { name: "settings" | "trash" | "backup" | "review" | "repeat" }) {
     const paths = {
         settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
         trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5",
-        backup: "M12 15V3m-4 4 4-4 4 4M5 13v7h14v-7"
+        backup: "M12 15V3m-4 4 4-4 4 4M5 13v7h14v-7",
+        review: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Zm3 4h8M8 12h8M8 16h5",
+        repeat: "M17 3l3 3-3 3M20 6H8a5 5 0 0 0-5 5m4 10-3-3 3-3m-3 3h12a5 5 0 0 0 5-5"
     };
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
@@ -220,6 +230,18 @@ function TodoApp() {
     const [celebrateOpen, setCelebrateOpen] = useState(false);
     const [celebrateClosing, setCelebrateClosing] = useState(false);
     const [celebratedKey, setCelebratedKey] = useState<string | null>(null);
+    const [reviewOpen, setReviewOpen] = useState(false);
+    const [reviewClosing, setReviewClosing] = useState(false);
+    const [reviewDate, setReviewDate] = useState(() => getTokyoDateKey());
+    const [routineOpen, setRoutineOpen] = useState(false);
+    const [soundEnabled, setSoundEnabled] = useState(() => {
+        try { return localStorage.getItem("todo-sound") !== "off"; }
+        catch { return true; }
+    });
+    const [nightTick, setNightTick] = useState(0);
+    useEffect(() => {
+        try { localStorage.setItem("todo-sound", soundEnabled ? "on" : "off"); } catch { /* Sound preference is optional. */ }
+    }, [soundEnabled]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
     const [title, setTitle] = useState("");
@@ -247,10 +269,10 @@ function TodoApp() {
     const trashCloseButton = useRef<HTMLButtonElement>(null);
     const trashTrigger = useRef<HTMLButtonElement>(null);
     const wasTrashOpen = useRef(false);
-    const reviewCloseButton = useRef<HTMLButtonElement>(null);
     const selectedDayTab = useRef<HTMLButtonElement>(null);
     const { today: todayDate, selected: selectedDate } = dayState;
     const isReadOnly = selectedDate !== todayDate;
+    const previousToday = useRef(todayDate);
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -262,6 +284,11 @@ function TodoApp() {
                     selected: current.selected === current.today ? nextToday : current.selected
                 });
         }, 15_000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setNightTick((value) => value + 1), 60_000);
         return () => window.clearInterval(timer);
     }, []);
 
@@ -288,6 +315,21 @@ function TodoApp() {
             setCelebrateOpen(false);
             setCelebrateClosing(false);
         }, 250);
+    }
+
+    function openReview(date: string) {
+        try { localStorage.setItem(`todo-review-auto:${date}`, "1"); } catch { /* Review still opens without storage. */ }
+        setReviewDate(date);
+        setReviewClosing(false);
+        setReviewOpen(true);
+    }
+
+    function closeReview() {
+        setReviewClosing(true);
+        window.setTimeout(() => {
+            setReviewOpen(false);
+            setReviewClosing(false);
+        }, 260);
     }
 
     useEffect(() => {
@@ -383,6 +425,37 @@ function TodoApp() {
             active = false;
         };
     }, [reload, todayDate]);
+
+    useEffect(() => {
+        if (previousToday.current === todayDate) return;
+        const finishedDate = previousToday.current;
+        const summary = availableDays.find((day) => day.date === finishedDate);
+        if (!summary) return;
+        previousToday.current = todayDate;
+        if (summary.todoCount === 0) return;
+
+        let alreadyReviewed = false;
+        try { alreadyReviewed = localStorage.getItem(`todo-review-auto:${finishedDate}`) === "1"; }
+        catch { /* Review can still open when storage is unavailable. */ }
+        if (!alreadyReviewed) openReview(finishedDate);
+    }, [todayDate, availableDays]);
+
+    useEffect(() => {
+        if (getTokyoHour() < 20) return;
+        if (loading || reviewOpen || celebrateOpen || settingsOpen || calendarOpen || trashOpen || backupOpen || routineOpen || editingTodoId) return;
+        if (todos.length > 0 && todos.every((todo) => todo.done)) return;
+
+        const summary = availableDays.find((day) => day.date === todayDate);
+        if (!summary || summary.todoCount === 0) return;
+
+        let alreadyReviewed = false;
+        try { alreadyReviewed = localStorage.getItem(`todo-review-auto:${todayDate}`) === "1"; }
+        catch { /* Review can still open when storage is unavailable. */ }
+        if (!alreadyReviewed) openReview(todayDate);
+    }, [
+        nightTick, loading, reviewOpen, celebrateOpen, settingsOpen, calendarOpen,
+        trashOpen, backupOpen, routineOpen, editingTodoId, todos, availableDays, todayDate
+    ]);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -569,16 +642,38 @@ function TodoApp() {
         }
     }
 
-    const total = todos.length;
-    const done = todos.filter((todo) => todo.done).length;
-    const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+    const pagesByDate = new Map<string, TodoDaySummary>(availableDays.map((day) => [day.date, day]));
+    const selectedSummary = pagesByDate.get(selectedDate);
+    const total = selectedSummary?.todoCount ?? todos.length;
+    const done = selectedSummary?.doneCount ?? todos.filter((todo) => todo.done).length;
+    const percent = selectedSummary?.percent ?? (total === 0 ? 0 : Math.round((done / total) * 100));
+    const carriedCount = selectedSummary?.carriedOverCount ?? todos.filter((todo) => todo.carriedOver).length;
     const [calendarYear, calendarMonthNumber] = calendarMonth.split("-").map(Number);
     const calendarDayCount = new Date(Date.UTC(calendarYear, calendarMonthNumber, 0)).getUTCDate();
     const calendarOffset = new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1)).getUTCDay();
     const calendarCells = Array.from({ length: calendarOffset + calendarDayCount }, (_, index) =>
         index < calendarOffset ? null : index - calendarOffset + 1
     );
-    const pagesByDate = new Map<string, TodoDaySummary>(availableDays.map((day) => [day.date, day]));
+    const heatmapWeeks = 16;
+    const todayWeekday = new Date(`${todayDate}T00:00:00.000Z`).getUTCDay();
+    const heatmapStart = shiftDateKey(todayDate, -((heatmapWeeks - 1) * 7 + todayWeekday));
+    const heatmapCells = Array.from({ length: heatmapWeeks * 7 }, (_, index) => {
+        const date = shiftDateKey(heatmapStart, index);
+        const summary = pagesByDate.get(date);
+        const future = date > todayDate;
+        const rate = summary?.percent ?? 0;
+        const level = !summary || summary.doneCount === 0
+            ? 0
+            : rate >= 100
+                ? 4
+                : rate >= 70
+                    ? 3
+                    : rate >= 40
+                        ? 2
+                        : 1;
+        return { date, summary, future, level };
+    });
+    const heatmapLabel = `${formatTabDay(heatmapStart)}〜${formatTabDay(todayDate)}`;
     const earliestPageMonth = availableDays.at(-1)?.date.slice(0, 7) ?? todayDate.slice(0, 7);
     const currentMonth = todayDate.slice(0, 7);
     const earliestCalendarMonth = shiftMonth(earliestPageMonth, -12);
@@ -639,9 +734,12 @@ function TodoApp() {
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v4m10-4v4M4 9h16M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
                 <header className="panel-header">
-                    <div>
+                    <div className="header-copy">
                         <p className="date-label">{formatDay(selectedDate)}</p>
-
+                        <p className="day-stats" aria-live="polite">
+                            <span>{selectedDate === todayDate ? "今日完了" : "完了"} <b>{done}</b> / 全体 <b>{total}</b></span>
+                            <span className="day-stat-carry">引き継ぎ <b>{carriedCount}</b></span>
+                        </p>
                     </div>
                     <div
                         className="progress-ring"
@@ -652,6 +750,40 @@ function TodoApp() {
                         <span>{percent}%</span>
                     </div>
                 </header>
+
+                <section className="habit-heatmap" aria-label={`直近${heatmapWeeks}週間の達成率`}>
+                    <div className="heatmap-head">
+                        <strong>積み重ね</strong>
+                        <span>{heatmapLabel}</span>
+                    </div>
+                    <div className="heatmap-grid" role="list" aria-label="日ごとの完了数と達成率">
+                        {heatmapCells.map((cell) => {
+                            const label = cell.future
+                                ? ""
+                                : cell.summary
+                                    ? `${formatDay(cell.date)}、${cell.summary.doneCount}/${cell.summary.todoCount}件完了、達成率${cell.summary.percent}%`
+                                    : `${formatDay(cell.date)}、記録なし`;
+                            return (
+                                <span
+                                    key={cell.date}
+                                    className={`heatmap-cell${cell.future ? " is-future" : ""}${cell.date === todayDate ? " is-today" : ""}`}
+                                    data-level={cell.level}
+                                    role={cell.future ? undefined : "listitem"}
+                                    aria-label={cell.future ? undefined : label}
+                                    aria-hidden={cell.future ? "true" : undefined}
+                                    title={cell.future ? undefined : label}
+                                />
+                            );
+                        })}
+                    </div>
+                    <div className="heatmap-legend" aria-hidden="true">
+                        <span>少ない</span>
+                        {[0, 1, 2, 3, 4].map((level) => (
+                            <i key={level} className="heatmap-cell" data-level={level} />
+                        ))}
+                        <span>多い</span>
+                    </div>
+                </section>
 
                 {isReadOnly ? (
                     <p className="archive-notice" title="閲覧専用"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg><span className="sr-only">過去の日付のページは閲覧専用です</span></p>
@@ -766,6 +898,22 @@ function TodoApp() {
                     <div className="footer-actions">
                         <button id="settings-trigger" className="backup-open" type="button" aria-expanded={settingsOpen} aria-controls="theme-settings" aria-label="設定" title="設定" onClick={() => setSettingsOpen(!settingsOpen)}><UiIcon name="settings" /></button>
                         <button
+                            aria-label="ルーティン" title="ルーティン"
+                            className="backup-open"
+                            type="button"
+                            onClick={() => setRoutineOpen(true)}
+                        >
+                            <UiIcon name="repeat" />
+                        </button>
+                        <button
+                            aria-label="今日の振り返り" title="今日の振り返り"
+                            className="backup-open"
+                            type="button"
+                            onClick={() => openReview(selectedDate)}
+                        >
+                            <UiIcon name="review" />
+                        </button>
+                        <button
                             ref={trashTrigger}
                             aria-label="ゴミ箱" title="ゴミ箱"
                             className="backup-open"
@@ -810,6 +958,17 @@ function TodoApp() {
                             ))}
                         </div>
                         <p className="sr-only" role="status">{theme === "dream" ? "夢かわ" : "レトロ喫茶"}を選択中</p>
+                        <label className="sound-setting">
+                            <span>
+                                <strong>振り返りの音</strong>
+                                <small>夜の振り返りでやさしいチャイムを鳴らす</small>
+                            </span>
+                            <input
+                                type="checkbox"
+                                checked={soundEnabled}
+                                onChange={(event) => setSoundEnabled(event.target.checked)}
+                            />
+                        </label>
                     </section>
                 )}
             </section>
@@ -1063,6 +1222,20 @@ function TodoApp() {
                     <button type="button" className="undo-dismiss" aria-label="通知を閉じる" disabled={undoBusy} onClick={() => setDeletedTodos([])}>×</button>
                 </div>
             )}
+            <RoutinePanel
+                open={routineOpen}
+                onClose={() => setRoutineOpen(false)}
+                onChanged={() => setReload((value) => value + 1)}
+            />
+            <ReviewModal
+                open={reviewOpen}
+                closing={reviewClosing}
+                dateKey={reviewDate}
+                dateLabel={formatDay(reviewDate)}
+                isToday={reviewDate === todayDate}
+                soundEnabled={soundEnabled}
+                onClose={closeReview}
+            />
             <CelebrateModal open={celebrateOpen} closing={celebrateClosing} onClose={closeCelebrate} />
         </main>
     );

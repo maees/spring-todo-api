@@ -8,7 +8,8 @@ const todoResponse = z.object({
     id: z.string(),
     title: z.string(),
     done: z.boolean(),
-    important: z.boolean().optional().default(false)
+    important: z.boolean().optional().default(false),
+    carriedOver: z.boolean().optional().default(false)
 });
 
 const createTodoSchema = z.object({
@@ -45,11 +46,16 @@ const validationResponse = (
     }
 };
 
-function serializeTodo(todo: { id: bigint; title: string; done: boolean; important?: boolean }) {
-    return todoResponse.parse({ ...todo, id: todo.id.toString(), important: todo.important ?? false });
+function serializeTodo(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean }) {
+    return todoResponse.parse({
+        ...todo,
+        id: todo.id.toString(),
+        important: todo.important ?? false,
+        carriedOver: todo.carriedOver ?? false
+    });
 }
 
-function trashItem(todo: { id: bigint; title: string; done: boolean; important?: boolean; day: Date; deletedAt: Date | null }) {
+function trashItem(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean; day: Date; deletedAt: Date | null }) {
     return {
         ...serializeTodo(todo),
         date: dateToKey(todo.day),
@@ -98,7 +104,16 @@ todos.get("/:id", zValidator("param", todoParamsSchema, validationResponse), asy
 todos.post("/", zValidator("json", createTodoSchema, validationResponse), async (c) => {
     const input = c.req.valid("json");
     await ensureCurrentDayPage();
-    const todo = await prisma.todo.create({ data: { title: input.title, done: input.done, important: input.important, day: dateKeyToDate(getTodayDateKey()), deletedAt: null } });
+    const todo = await prisma.todo.create({
+        data: {
+            title: input.title,
+            done: input.done,
+            important: input.important,
+            carriedOver: false,
+            day: dateKeyToDate(getTodayDateKey()),
+            deletedAt: null
+        }
+    });
     return c.json(serializeTodo(todo), 201);
 });
 

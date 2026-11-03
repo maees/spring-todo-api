@@ -8,13 +8,14 @@ datasource db {
 }
 
 model Todo {
-  id        BigInt    @id @default(autoincrement())
-  title     String    @db.VarChar(255)
-  done      Boolean   @default(false)
-  important Boolean   @default(false)
-  day       DateTime  @db.Date
-  page      TodoDay   @relation(fields: [day], references: [date], onDelete: Cascade)
-  deletedAt DateTime? @db.Timestamp(3)
+  id          BigInt    @id @default(autoincrement())
+  title       String    @db.VarChar(255)
+  done        Boolean   @default(false)
+  important   Boolean   @default(false)
+  carriedOver Boolean   @default(false)
+  day         DateTime  @db.Date
+  page        TodoDay   @relation(fields: [day], references: [date], onDelete: Cascade)
+  deletedAt   DateTime? @db.Timestamp(3)
 
   @@index([day, done, important, id])
   @@index([deletedAt])
@@ -22,20 +23,23 @@ model Todo {
 }
 
 model TodoDay {
-  date  DateTime @id @db.Date
-  todos Todo[]
+  date       DateTime @id @db.Date
+  reviewNote String?  @db.VarChar(500)
+  todos      Todo[]
 
   @@map("todo_days")
 }
 
 model Routine {
-  id        String   @id @default(cuid())
-  title     String   @db.VarChar(255)
-  enabled   Boolean  @default(true)
-  daysOfWeek String[] @default([])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  history   RoutineHistory[]
+  id           String   @id @default(cuid())
+  title        String   @db.VarChar(255)
+  enabled      Boolean  @default(true)
+  daysOfWeek   String[] @default([])
+  intervalDays Int      @default(1)
+  startDate    String?  @db.VarChar(10)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  history      RoutineHistory[]
 
   @@map("routines")
 }
