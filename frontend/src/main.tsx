@@ -252,11 +252,6 @@ function TodoApp() {
     const [deletedTodos, setDeletedTodos] = useState<Todo[]>([]);
     const [undoBusy, setUndoBusy] = useState(false);
     const [completion, setCompletion] = useState<{ id: string; key: number } | null>(null);
-    useEffect(() => {
-        if (!completion) return;
-        const timer = window.setTimeout(() => setCompletion(null), 1100);
-        return () => window.clearTimeout(timer);
-    }, [completion]);
     const titleInput = useRef<HTMLInputElement>(null);
     const editInput = useRef<HTMLInputElement>(null);
     const editForm = useRef<HTMLFormElement>(null);
@@ -273,24 +268,36 @@ function TodoApp() {
     const { today: todayDate, selected: selectedDate } = dayState;
     const isReadOnly = selectedDate !== todayDate;
     const previousToday = useRef(todayDate);
-
+    const [focusOpen, setFocusOpen] = useState(false);
+    const [focusTasks, setFocusTasks] = useState<Todo[]>([]);
+    const [focusIndex, setFocusIndex] = useState(0);
+    const [focusSeconds, setFocusSeconds] = useState(25 * 60);
+    const [focusRunning, setFocusRunning] = useState(false);
+    const [focusCompletedTitle, setFocusCompletedTitle] = useState<string | null>(null);
     useEffect(() => {
+        if (!focusRunning || focusSeconds <= 0) return;
         const timer = window.setInterval(() => {
-            const nextToday = getTokyoDateKey();
-            setDayState((current) => current.today === nextToday
-                ? current
-                : {
-                    today: nextToday,
-                    selected: current.selected === current.today ? nextToday : current.selected
-                });
-        }, 15_000);
+            setFocusSeconds((seconds) => Math.max(0, seconds - 1));
+        }, 1000);
         return () => window.clearInterval(timer);
-    }, []);
+    }, [focusRunning, focusSeconds]);
 
     useEffect(() => {
-        const timer = window.setInterval(() => setNightTick((value) => value + 1), 60_000);
-        return () => window.clearInterval(timer);
-    }, []);
+        if (!focusRunning || focusSeconds > 0) return;
+        setFocusRunning(false);
+    }, [focusRunning, focusSeconds]);
+
+    useEffect(() => {
+        if (!focusOpen) return;
+        const handleEscape = (event: globalThis.KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setFocusOpen(false);
+                setFocusRunning(false);
+            }
+        };
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, [focusOpen]);
 
     useEffect(() => {
         setEditingTodoId(null);
@@ -457,6 +464,24 @@ function TodoApp() {
         trashOpen, backupOpen, routineOpen, editingTodoId, todos, availableDays, todayDate
     ]);
 
+    async function openFocusMode() {
+        setMessage("");
+        try {
+            const openTodos = await request<Todo[]>(`/api/todos?date=${selectedDate}&done=false`);
+            const candidates = [
+                ...openTodos.filter((todo) => todo.important && !todo.done),
+                ...openTodos.filter((todo) => !todo.important && !todo.done)
+            ].slice(0, 3);
+            setFocusTasks(candidates);
+            setFocusIndex(0);
+            setFocusSeconds(25 * 60);
+            setFocusRunning(false);
+            setFocusOpen(true);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "集中モードを開始できませんでした。");
+        }
+    }
+
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setMessage("");
@@ -487,7 +512,17 @@ function TodoApp() {
                 method: "PUT",
                 body: JSON.stringify({ title: todo.title, done: !todo.done, important: todo.important ?? false })
             });
-            if (!todo.done) setCompletion({ id: todo.id, key: Date.now() });
+            if (!todo.done) {
+                setCompletion({ id: todo.id, key: Date.now() });
+                if (focusOpen) {
+                    setFocusCompletedTitle(todo.title);
+                    window.setTimeout(() => {
+                        setFocusTasks((current) => current.filter((item) => item.id !== todo.id));
+                        setFocusCompletedTitle(null);
+                        setFocusIndex((current) => current > 0 ? current - 1 : 0);
+                    }, 900);
+                }
+            }
             setReload((value) => value + 1);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
@@ -684,6 +719,11 @@ function TodoApp() {
         month: "long"
     }).format(new Date(`${calendarMonth}-01T00:00:00.000Z`));
 
+    const focusTodo = focusTasks[focusIndex] ?? null;
+    const focusMinutes = String(Math.floor(focusSeconds / 60)).padStart(2, "0");
+    const focusRemainder = String(focusSeconds % 60).padStart(2, "0");
+    const focusTimeLabel = `${focusMinutes}:${focusRemainder}`;
+
     return (
         <main className="app-shell">
             <section className="hero" aria-label="ホーム">
@@ -823,6 +863,15 @@ function TodoApp() {
                             </button>
                         ))}
                     </div>
+                    <button
+                        className="focus-mode-open"
+                        type="button"
+                        disabled={isReadOnly || loading}
+                        onClick={() => void openFocusMode()}
+                    >
+                        <span aria-hidden="true">◎</span>
+                        <span>集中モード</span>
+                    </button>
 
                 </div>
 
@@ -877,10 +926,24 @@ function TodoApp() {
                                                 {todo.title}
                                             </button>
                                         )}
-                                        {todo.important && <span className="pinned-mark" role="img" aria-label="ピン留め中"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
+                                        {isReadOnly ? (
+                                            todo.important && <span className="pinned-mark is-readonly" role="img" aria-label="ピン留め中"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill="currentColor" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+                                        ) : (
+                                            <button
+                                                className={`pinned-mark pin-toggle${todo.important ? " is-active" : ""}`}
+                                                type="button"
+                                                aria-label={`「${todo.title}」を${todo.important ? "ピン留め解除" : "ピン留め"}`}
+                                                aria-pressed={todo.important ?? false}
+                                                title={todo.important ? "ピン留め解除" : "集中モードで優先表示"}
+                                                onClick={() => { void toggleImportant(todo); }}
+                                            >
+                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill={todo.important ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                            </button>
+                                        )}
                                         {!isReadOnly && <RowActions todo={todo} onPin={() => { void toggleImportant(todo); }} onDelete={() => { void handleDelete(todo); }} />}
                                     </>
                                 )}
+                                {todo.important && <span className="priority-badge">優先</span>}
                             </li>
                         ))}
                     </ul>
@@ -972,6 +1035,83 @@ function TodoApp() {
                     </section>
                 )}
             </section>
+            {focusOpen && (
+                <div className="focus-overlay" role="dialog" aria-modal="true" aria-labelledby="focus-title" onKeyDown={(event) => handleDialogKeyDown(event, () => { setFocusOpen(false); setFocusRunning(false); })}>
+                    <header className="focus-header">
+                        <div>
+                            <p>今日の3つ</p>
+                            <h2 id="focus-title">集中モード</h2>
+                        </div>
+                        <button
+                            className="focus-close"
+                            type="button"
+                            aria-label="集中モードを閉じる"
+                            onClick={() => { setFocusOpen(false); setFocusRunning(false); }}
+                        >×</button>
+                    </header>
+                    {focusTodo ? (
+                        <div className="focus-content">
+                            {focusCompletedTitle && (
+                                <div className="focus-completed-toast" role="status">
+                                    <span aria-hidden="true">✓</span>
+                                    <strong>{focusCompletedTitle}</strong>
+                                    <small>完了しました</small>
+                                </div>
+                            )}
+                            <div className="focus-progress" aria-label={`${focusIndex + 1}/${focusTasks.length}件目`}>
+                                {focusTasks.map((task, index) => (
+                                    <button
+                                        key={task.id}
+                                        type="button"
+                                        className={index === focusIndex ? "is-active" : ""}
+                                        aria-label={`${index + 1}件目：${task.title}`}
+                                        aria-pressed={index === focusIndex}
+                                        onClick={() => setFocusIndex(index)}
+                                    />
+                                ))}
+                            </div>
+                            <p className="focus-order">{focusIndex + 1} / {focusTasks.length}</p>
+                            <h3 className="focus-task-title">{focusTodo.title}</h3>
+                            <div className="focus-timer" aria-live="polite">
+                                <span>{focusTimeLabel}</span>
+                                <div className="focus-timer-actions">
+                                    <button type="button" onClick={() => setFocusRunning((running) => !running)}>
+                                        {focusRunning ? "停止" : "タイマー開始"}
+                                    </button>
+                                    <button type="button" onClick={() => { setFocusSeconds(25 * 60); setFocusRunning(false); }}>リセット</button>
+                                </div>
+                            </div>
+                            <button
+                                className="focus-complete"
+                                type="button"
+                                onClick={() => void handleToggle(focusTodo)}
+                            >
+                                <span aria-hidden="true">✓</span>
+                                完了
+                            </button>
+                            <div className="focus-nav">
+                                <button
+                                    type="button"
+                                    disabled={focusTasks.length < 2 || focusIndex === 0}
+                                    onClick={() => setFocusIndex((index) => Math.max(0, index - 1))}
+                                >前へ</button>
+                                <button
+                                    type="button"
+                                    disabled={focusTasks.length < 2 || focusIndex === focusTasks.length - 1}
+                                    onClick={() => setFocusIndex((index) => Math.min(focusTasks.length - 1, index + 1))}
+                                >次へ</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="focus-empty">
+                            <div aria-hidden="true">✦</div>
+                            <h3>今日の3つは完了！</h3>
+                            <p>集中モードを終了して、ゆっくり休みましょう。</p>
+                            <button type="button" onClick={() => { setFocusOpen(false); setFocusRunning(false); }}>閉じる</button>
+                        </div>
+                    )}
+                </div>
+            )}
             {calendarOpen && (
                 <div className="calendar-overlay">
                     <button
