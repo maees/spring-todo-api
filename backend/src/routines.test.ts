@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { isRoutineDue } from "./routines";
+import { applyRoutines, isRoutineDue } from "./routines";
+import type { prisma } from "./prisma";
 
 const baseRoutine = {
     enabled: true,
@@ -41,5 +42,40 @@ describe("ルーティンの繰り返し", () => {
     it("開始日より前や停止中は対象外", () => {
         expect(isRoutineDue(baseRoutine, "2026-11-02")).toBe(false);
         expect(isRoutineDue({ ...baseRoutine, enabled: false }, "2026-11-03")).toBe(false);
+    });
+
+    it("同じタイトルの引き継ぎTodoがある日はルーティンを重ねて作らない", async () => {
+        const routine = { id: "routine-1", title: "薬を飲む", ...baseRoutine };
+        const carriedTodo = { id: 42n };
+        const history: { routineId: string; dateKey: string; todoId: bigint }[] = [];
+        let createdTodos = 0;
+        const database = {
+            todoDay: { upsert: async () => ({}) },
+            routine: { findMany: async () => [routine] },
+            routineHistory: {
+                findUnique: async () => null,
+                create: async ({ data }: { data: typeof history[number] }) => {
+                    history.push(data);
+                    return data;
+                }
+            },
+            todo: {
+                findFirst: async ({ where }: { where: { day: Date; title: string; carriedOver: true; deletedAt: null } }) => {
+                    expect(where.title).toBe("薬を飲む");
+                    expect(where.carriedOver).toBe(true);
+                    return carriedTodo;
+                },
+                create: async () => {
+                    createdTodos += 1;
+                    return { id: 99n };
+                }
+            }
+        };
+
+        const created = await applyRoutines("2026-11-04", database as unknown as typeof prisma);
+
+        expect(createdTodos).toBe(0);
+        expect(created).toEqual([]);
+        expect(history).toEqual([{ routineId: "routine-1", dateKey: "2026-11-04", todoId: carriedTodo.id }]);
     });
 });

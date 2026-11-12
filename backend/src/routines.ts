@@ -83,7 +83,10 @@ export async function applyRoutines(dateKey: string = getTodayDateKey(), databas
         });
         if (existing) continue;
 
-        const todo = await database.todo.create({
+        const carriedOverTodo = await database.todo.findFirst({
+            where: { day, title: routine.title, carriedOver: true, deletedAt: null }
+        });
+        const todo = carriedOverTodo ?? await database.todo.create({
             data: {
                 title: routine.title,
                 done: false,
@@ -98,7 +101,7 @@ export async function applyRoutines(dateKey: string = getTodayDateKey(), databas
             data: { routineId: routine.id, dateKey, todoId: todo.id }
         });
 
-        created.push({ routineId: routine.id, todoId: todo.id.toString() });
+        if (!carriedOverTodo) created.push({ routineId: routine.id, todoId: todo.id.toString() });
     }
 
     return created;

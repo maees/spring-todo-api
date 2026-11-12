@@ -943,6 +943,7 @@ function TodoApp() {
                                         {!isReadOnly && <RowActions todo={todo} onPin={() => { void toggleImportant(todo); }} onDelete={() => { void handleDelete(todo); }} />}
                                     </>
                                 )}
+                                {todo.carriedOver && <span className="carried-badge">引き継ぎ</span>}
                                 {todo.important && <span className="priority-badge">優先</span>}
                             </li>
                         ))}
