@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import { tagFields, resolveTags } from "./tags";
 import { prisma } from "./prisma";
 import { dateKeyToDate, dateToKey, getTodayDateKey } from "./day-pages";
 
 const routineSchema = z.object({
+    ...tagFields,
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
     enabled: z.boolean().optional().default(true),
     daysOfWeek: z.array(z.number().int().min(0).max(6)).optional().default([]),
@@ -22,6 +24,8 @@ const validationResponse = (
 };
 
 function toRoutine(routine: {
+    tags?: string[];
+    tagMode?: string;
     id: string;
     title: string;
     enabled: boolean;
@@ -31,6 +35,7 @@ function toRoutine(routine: {
     createdAt: Date;
 }) {
     return {
+        ...resolveTags(routine.title, routine),
         id: routine.id,
         title: routine.title,
         enabled: routine.enabled,
@@ -88,6 +93,7 @@ export async function applyRoutines(dateKey: string = getTodayDateKey(), databas
         });
         const todo = carriedOverTodo ?? await database.todo.create({
             data: {
+                ...resolveTags(routine.title, routine),
                 title: routine.title,
                 done: false,
                 important: false,
@@ -118,6 +124,7 @@ routines.post("/", zValidator("json", routineSchema, validationResponse), async 
     const input = c.req.valid("json");
     const routine = await prisma.routine.create({
         data: {
+            ...resolveTags(input.title, undefined, input),
             title: input.title,
             enabled: input.enabled,
             daysOfWeek: input.daysOfWeek.map(String),
@@ -137,6 +144,7 @@ routines.put("/:id", zValidator("json", routineSchema, validationResponse), asyn
     const routine = await prisma.routine.update({
         where: { id },
         data: {
+            ...resolveTags(input.title, existing, input),
             title: input.title,
             enabled: input.enabled,
             daysOfWeek: input.daysOfWeek.map(String),

@@ -1,0 +1,18 @@
+.tag-picker { border: 0; padding: 8px 0; margin: 0; min-width: 0; color: inherit; }
+.tag-picker legend { font-size: .8rem; font-weight: 600; }
+.tag-auto { display: flex; align-items: center; gap: 6px; font-size: .8rem; margin-bottom: 8px; }
+.tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-chip, .todo-tag { border: 1px solid currentColor; border-radius: 14px; padding: 3px 8px; font-size: .72rem; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; opacity: .65; }
+.tag-chip.is-selected { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+.tag-picker small { display: block; margin-top: 6px; font-size: .72rem; opacity: .75; }
+.todo-tag { display: inline-block; margin: 2px; white-space: nowrap; }
+.todo-tag-editor { grid-column: 1 / -1; flex-basis: 100%; }
+.todo-edit-form { flex-wrap: wrap; }
+.todo-edit-form .tag-picker { flex-basis: 100%; }
+.tag-filter { display: flex; align-items: center; gap: 8px; margin: 8px 0 16px; font-size: .8rem; }
+.tag-filter select { padding: 6px 10px; border: 1px solid currentColor; border-radius: 8px; color: inherit; background: transparent; }
+.todo-item { flex-wrap: wrap; }
+.todo-tag-editor:empty { display: none; }
+.todo-tag-editor { padding-left: 30px; }
+.tag-picker input[type="checkbox"] { width: auto; accent-color: var(--ink, #796195); }

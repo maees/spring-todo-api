@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { tagFields, resolveTags } from "./tags";
+import type { Tag, TagMode } from "../../shared/tags";
 import { prisma } from "./prisma";
 import { dateKeyToDate, dateToKey, getTodayDateKey } from "./day-pages";
 
@@ -9,6 +11,7 @@ const MAX_BACKUP_BYTES = 5_000_000;
 const MAX_TODOS = 100_000;
 
 const todoSchema = z.object({
+    ...tagFields,
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
     done: z.boolean()
 });
@@ -30,7 +33,7 @@ const importSchema = z.object({
     `Todoは${MAX_TODOS}件以内にしてください`
 );
 
-export type BackupTodo = { title: string; done: boolean };
+export type BackupTodo = { title: string; done: boolean; tags?: Tag[]; tagMode?: TagMode };
 export type BackupDay = { date: string; todos: BackupTodo[] };
 export type BackupFile = {
     app: string;
@@ -145,12 +148,20 @@ export function parseBackupCsv(text: string): NormalizedBackup {
     const days: BackupDay[] = rows.map((row, index) => {
         const line = index + 2;
 
-        if (row.length !== 3) {
-            throw new Error(`${line}行目: date,title,doneの3列で入力してください`);
+        if (row.length !== 3 && row.length !== 5) {
+            throw new Error(`${line}行目: date,title,doneの3列、またはtags,tagModeを加えた5列で入力してください`);
         }
 
         const [date, title, done] = row;
-        const todo = todoSchema.safeParse({ title, done: parseDone(done, line) });
+        let tagData = {};
+        if (row.length === 5) {
+            try {
+                tagData = { tags: JSON.parse(row[3]!), tagMode: row[4] };
+            } catch {
+                throw new Error(`${line}行目: tagsはJSON配列で入力してください`);
+            }
+        }
+        const todo = todoSchema.safeParse({ title, done: parseDone(done, line), ...tagData });
         if (!todo.success) {
             throw new Error(`${line}行目: ${todo.error.issues[0]?.message ?? "Todoの形式が正しくありません"}`);
         }
@@ -171,11 +182,17 @@ function csvField(value: string): string {
 }
 
 export function toBackupCsv(backup: BackupFile): string {
-    const lines = ["date,title,done"];
+    const withTags = backup.days.some((day) => day.todos.some((todo) => todo.tags !== undefined || todo.tagMode !== undefined));
+    const lines = [withTags ? "date,title,done,tags,tagMode" : "date,title,done"];
 
     for (const day of backup.days) {
         for (const todo of day.todos) {
-            lines.push([day.date, csvField(todo.title), String(todo.done)].join(","));
+            const fields = [day.date, csvField(todo.title), String(todo.done)];
+            if (withTags) {
+                const resolved = resolveTags(todo.title, todo);
+                fields.push(csvField(JSON.stringify(resolved.tags)), resolved.tagMode);
+            }
+            lines.push(fields.join(","));
         }
     }
 
@@ -194,7 +211,7 @@ export async function loadBackup(database: typeof prisma = prisma): Promise<Back
         exportedAt: new Date().toISOString(),
         days: pages.map((page) => ({
             date: dateToKey(page.date),
-            todos: page.todos.map(({ title, done }) => ({ title, done }))
+            todos: page.todos.map((todo) => ({ title: todo.title, done: todo.done, ...resolveTags(todo.title, todo) }))
         }))
     };
 }
@@ -224,7 +241,7 @@ export async function restoreBackup(
             const existingPage = await transaction.todoDay.findUnique({ where: { date } });
 
             if (!existingPage) {
-                await transaction.todoDay.create({ data: { date } });
+                await transaction.todoDay.create({ data: { date, activated: dateToKey(date) <= getTodayDateKey() } });
                 daysCreated += 1;
             }
 
@@ -247,7 +264,7 @@ export async function restoreBackup(
 
             if (toCreate.length > 0) {
                 await transaction.todo.createMany({
-                    data: toCreate.map((todo) => ({ ...todo, day: date }))
+                    data: toCreate.map((todo) => ({ ...todo, ...resolveTags(todo.title, undefined, todo), day: date }))
                 });
                 todosCreated += toCreate.length;
             }

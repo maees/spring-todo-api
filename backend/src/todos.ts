@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import { tagFields, resolveTags } from "./tags";
 import { prisma } from "./prisma";
 import { dateKeyToDate, dateToKey, ensureCurrentDayPage, getTodayDateKey } from "./day-pages";
 
 const todoResponse = z.object({
+    tags: z.array(z.string()),
+    tagMode: z.enum(["auto", "manual"]),
     id: z.string(),
     title: z.string(),
     done: z.boolean(),
@@ -13,12 +16,16 @@ const todoResponse = z.object({
 });
 
 const createTodoSchema = z.object({
+    date: z.iso.date().optional(),
+    ...tagFields,
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
     done: z.boolean().optional().default(false),
     important: z.boolean().optional().default(false)
 });
 
 const updateTodoSchema = z.object({
+    date: z.iso.date().optional(),
+    ...tagFields,
     title: z.string().trim().min(1, "タイトルは必須です").max(255, "タイトルは255文字以内で入力してください"),
     done: z.boolean(),
     important: z.boolean().optional()
@@ -46,16 +53,17 @@ const validationResponse = (
     }
 };
 
-function serializeTodo(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean }) {
+function serializeTodo(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean; tags?: string[]; tagMode?: string }) {
     return todoResponse.parse({
         ...todo,
+        ...resolveTags(todo.title, todo),
         id: todo.id.toString(),
         important: todo.important ?? false,
         carriedOver: todo.carriedOver ?? false
     });
 }
 
-function trashItem(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean; day: Date; deletedAt: Date | null }) {
+function trashItem(todo: { id: bigint; title: string; done: boolean; important?: boolean; carriedOver?: boolean; tags?: string[]; tagMode?: string; day: Date; deletedAt: Date | null }) {
     return {
         ...serializeTodo(todo),
         date: dateToKey(todo.day),
@@ -103,29 +111,63 @@ todos.get("/:id", zValidator("param", todoParamsSchema, validationResponse), asy
 
 todos.post("/", zValidator("json", createTodoSchema, validationResponse), async (c) => {
     const input = c.req.valid("json");
+    const date = input.date ?? getTodayDateKey();
+    if (date < getTodayDateKey()) return c.json({ errors: ["過去の日付には追加できません"] }, 409);
     await ensureCurrentDayPage();
+    if (date > getTodayDateKey()) await prisma.todoDay.upsert({
+        where: { date: dateKeyToDate(date) },
+        create: { date: dateKeyToDate(date), activated: false },
+        update: {}
+    });
     const todo = await prisma.todo.create({
         data: {
+            ...resolveTags(input.title, undefined, input),
             title: input.title,
             done: input.done,
             important: input.important,
             carriedOver: false,
-            day: dateKeyToDate(getTodayDateKey()),
+            day: dateKeyToDate(date),
             deletedAt: null
         }
     });
     return c.json(serializeTodo(todo), 201);
 });
 
+// Classification can be corrected on archived records without changing their content.
+todos.patch("/:id/tags", zValidator("param", todoParamsSchema, validationResponse), zValidator("json", z.object({
+    tags: tagFields.tags.unwrap(),
+    tagMode: z.enum(["auto", "manual"])
+}).strict(), validationResponse), async (c) => {
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const existing = await prisma.todo.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt !== null) return c.json({ errors: ["Todoが見つかりません"] }, 404);
+    const todo = await prisma.todo.update({ where: { id }, data: resolveTags(existing.title, existing, input) });
+    return c.json(serializeTodo(todo));
+});
+
 todos.put("/:id", zValidator("param", todoParamsSchema, validationResponse), zValidator("json", updateTodoSchema, validationResponse), async (c) => {
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    const existing = await prisma.todo.findUnique({ where: { id }, select: { day: true, deletedAt: true } });
+    const existing = await prisma.todo.findUnique({ where: { id }, select: { day: true, deletedAt: true, tags: true, tagMode: true } });
     if (!existing || existing.deletedAt !== null) return c.json({ errors: ["Todoが見つかりません"] }, 404);
-    if (dateToKey(existing.day) !== getTodayDateKey()) {
+    if (dateToKey(existing.day) < getTodayDateKey()) {
         return c.json({ errors: ["過去の日付のTodoは変更できません"] }, 409);
     }
-    const todo = await prisma.todo.update({ where: { id }, data: input });
+    const { date, ...changes } = input;
+    if (date && date < getTodayDateKey()) return c.json({ errors: ["過去の日付へは移動できません"] }, 409);
+    if (date === getTodayDateKey()) await ensureCurrentDayPage();
+    const todo = await prisma.$transaction(async (transaction) => {
+        if (date) await transaction.todoDay.upsert({
+            where: { date: dateKeyToDate(date) },
+            create: { date: dateKeyToDate(date), activated: date === getTodayDateKey() },
+            update: {}
+        });
+        return transaction.todo.update({ where: { id }, data: {
+            ...changes, ...resolveTags(input.title, existing, input),
+            ...(date && date !== dateToKey(existing.day) ? { day: dateKeyToDate(date), carriedOver: false } : {})
+        } });
+    });
     return c.json(serializeTodo(todo));
 });
 
@@ -134,7 +176,7 @@ todos.delete("/:id", zValidator("param", todoParamsSchema, validationResponse), 
     const existing = await prisma.todo.findUnique({ where: { id }, select: { day: true, deletedAt: true } });
     if (!existing) return c.json({ errors: ["Todoが見つかりません"] }, 404);
     if (existing.deletedAt !== null) return c.json({ errors: ["Todoが見つかりません"] }, 404);
-    if (dateToKey(existing.day) !== getTodayDateKey()) {
+    if (dateToKey(existing.day) < getTodayDateKey()) {
         return c.json({ errors: ["過去の日付のTodoは削除できません"] }, 409);
     }
     await prisma.todo.update({ where: { id }, data: { deletedAt: new Date() } });

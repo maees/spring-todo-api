@@ -9,6 +9,8 @@ datasource db {
 
 model Todo {
   id          BigInt    @id @default(autoincrement())
+  tags        String[]  @default([])
+  tagMode     String    @default("auto")
   title       String    @db.VarChar(255)
   done        Boolean   @default(false)
   important   Boolean   @default(false)
@@ -23,6 +25,7 @@ model Todo {
 }
 
 model TodoDay {
+  activated  Boolean  @default(true)
   date       DateTime @id @db.Date
   reviewNote String?  @db.VarChar(500)
   todos      Todo[]
@@ -32,6 +35,8 @@ model TodoDay {
 
 model Routine {
   id           String   @id @default(cuid())
+  tags         String[] @default([])
+  tagMode      String   @default("auto")
   title        String   @db.VarChar(255)
   enabled      Boolean  @default(true)
   daysOfWeek   String[] @default([])

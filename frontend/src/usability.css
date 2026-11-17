@@ -1,0 +1,114 @@
+/* Daily tasks use the available screen and normal page scrolling. */
+:root:root:root body { display:block; background-image:none; background-color:var(--paper); }
+:root:root:root .app-shell { display:block; width:min(760px,calc(100% - 40px)); height:auto; min-height:100svh; aspect-ratio:auto; overflow:visible; margin:0 auto; padding:28px 0; border:0; border-radius:0; background:none; box-shadow:none; }
+:root:root:root .hero { min-height:0; padding:0 0 44px; background:none; }
+:root:root:root .hero h1 { width:auto; margin:0; font:800 26px/1.3 "Hiragino Sans",system-ui,sans-serif; letter-spacing:0; text-shadow:none; }
+:root:root:root .hero .dream-sky,:root:root:root .hero .shape { display:none; }
+:root:root:root .todo-panel { padding:24px; min-height:0; border:1px solid var(--line); border-radius:18px; background:var(--panel); box-shadow:0 8px 32px #6553820c; }
+:root:root:root .panel-header { margin:0 0 18px; padding:0 0 18px; border-bottom:1px solid var(--line); background:none; }
+:root:root:root .date-label { font-family:inherit; font-size:18px; letter-spacing:0; }
+.day-stats { display:flex; flex-wrap:wrap; gap:12px; }
+:root:root:root .progress-ring { width:48px; height:48px; outline:0; box-shadow:none; font-size:12px; }
+.toolbar { margin:0 0 8px; gap:12px; }
+:root:root:root .filters { width:auto; justify-content:flex-start; background:transparent; border:0; padding:0; }
+:root:root:root .filter-button { flex:0 1 auto; min-width:70px; padding:8px 16px; }
+.filter-options { margin:0 0 16px; }
+.filter-options summary,.compose-options summary,.history-details > summary { width:fit-content; min-height:36px; padding:8px 0; cursor:pointer; font-size:13px; color:var(--muted); }
+.compose-options { margin-top:4px; }
+.compose-options small { margin-left:8px; font-weight:400; }
+:root:root:root .todo-form { gap:10px; margin:0; }
+:root:root:root .todo-form input { min-height:52px; border:1px solid var(--line); box-shadow:none; background:var(--panel); border-radius:10px; }
+:root:root:root .add-button { width:auto; min-width:76px; padding:0 18px; min-height:52px; border:0; border-radius:10px; box-shadow:none; font-size:15px; font-weight:700; }
+.form-message { margin:6px 0; }
+:root:root:root .todo-list { display:grid; flex:none; gap:8px; margin-top:8px; }
+:root:root:root .todo-item { min-height:64px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background-image:none; }
+:root:root:root .todo-title { font-size:16px; line-height:1.6; }
+:root:root:root .todo-title-button { min-height:44px; }
+:root:root:root .todo-item.is-new { border-color:#679cb4; box-shadow:0 0 0 2px #679cb41a; }
+.new-badge { font-size:11px; color:#386b83; padding:3px 7px; border-radius:6px; background:#dceffa; }
+.todo-tag-editor { flex-basis:auto; padding-left:44px; }
+.todo-tag-editor:has(.todo-tag) { flex-basis:100%; }
+:root:root:root .panel-footer { padding-top:16px; margin-top:16px; border-top:1px solid var(--line); background:none; }
+:root:root:root .footer-actions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; }
+:root:root:root .footer-actions .backup-open { display:flex; flex-direction:row; align-items:center; gap:6px; min-height:44px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:transparent; box-shadow:none; font-size:12px; }
+:root:root:root .footer-actions .backup-open span { margin:0; }
+:root:root:root .footer-actions svg { width:18px; height:18px; }
+.history-details { margin-top:24px; }
+.habit-heatmap { margin-top:8px; }
+.empty-state::after { content:"まだTodoはありません。上の入力欄から追加できます。"; font-size:14px; color:var(--muted); }
+@media (max-width:520px) {
+:root:root:root .app-shell { width:calc(100% - 24px); padding:18px 0; }
+:root:root:root .todo-panel { padding:16px 12px; }
+:root:root:root .hero { padding-bottom:42px; }
+.toolbar { gap:6px; }
+:root:root:root .filter-button { min-width:56px; padding:8px 10px; }
+:root:root:root .todo-title { font-size:15px; }
+:root:root:root .add-button { min-width:64px; padding:0 12px; }
+}
+
+:root:root:root .todo-tag-editor { flex-basis:auto; padding:0; }
+:root:root:root .todo-tag-editor:has(.todo-tag) { flex-basis:auto; }
+.record-tags { display:contents; }
+.record-tags-trigger { min-height:36px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--panel); font-size:12px; }
+.record-tags-trigger:hover { background:var(--mint); }
+.record-tags-editor { flex-basis:100%; padding:12px; border-top:1px solid var(--line); }
+.record-tag-choices { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.record-tag-choices button { min-height:40px; padding:7px 12px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--panel); font-size:13px; }
+.record-tag-choices button[aria-pressed="true"] { background:var(--mint); border-color:var(--accent-dark); }
+.record-tags-editor small { color:var(--muted); }
+.record-tags-editor [role="alert"] { color:#ab3e64; }
+.plan-date-picker { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 14px; font-size:13px; }
+.plan-date-picker label { flex-basis:100%; color:var(--muted); }
+.plan-date-picker input,.plan-date-picker button { min-height:40px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink); font:inherit; }
+.plan-date-picker button:hover { background:var(--mint); }
+.future-label { display:inline-block; margin-left:10px; padding:4px 8px; border-radius:6px; background:var(--mint); font:600 12px/1.4 system-ui,sans-serif; }
+.monthly-history { margin-top:12px; }
+.monthly-history h3 { margin:0 0 6px; font-size:17px; }
+.history-help { color:var(--muted); font-size:12px; line-height:1.6; }
+.history-weekdays,.history-month-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; }
+.history-weekdays { margin:14px 0 6px; text-align:center; font-size:12px; color:var(--muted); }
+.history-day { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; min-height:62px; padding:6px 2px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink); }
+.history-day span { font-weight:700; }
+.history-day small { font-size:10px; white-space:nowrap; }
+.history-day.is-today { border-color:var(--accent-dark); }
+.history-day[aria-pressed="true"] { background:var(--mint); }
+.history-day:hover:not(:disabled) { background:var(--mint); }
+.history-day:disabled { opacity:.45; }
+.history-selection { padding:10px 12px; border-radius:8px; background:var(--mint); font-size:14px; }
+@media (max-width:420px) { .history-weekdays,.history-month-grid { gap:3px; } .history-day small { font-size:9px; } }
+/* Three destinations share a consistent daily list. */
+.main-navigation { display:flex; gap:6px; padding:5px; margin-bottom:22px; border-radius:12px; background:var(--paper); }
+.main-navigation button { flex:1; min-height:46px; border:0; border-radius:9px; color:var(--muted); background:transparent; font-weight:700; }
+.main-navigation button[aria-current="page"] { color:var(--ink); background:var(--panel); box-shadow:0 2px 6px #65538216; }
+:root:root:root .hero { padding-bottom:18px; }
+:root:root:root .app-shell { max-width:760px; }
+:root:root:root .todo-panel { width:100%; max-width:none; }
+:root:root:root .toolbar { display:flex; flex-wrap:wrap; justify-content:space-between; margin:16px 0 6px; }
+:root:root:root .filter-options { margin:0 0 8px; }
+:root:root:root .filter-options summary { min-height:32px; padding:5px 0; }
+:root:root:root .archive-notice { justify-content:flex-start; gap:8px; color:var(--muted); font-size:12px; }
+:root:root:root .history-details { margin:0 0 22px; }
+.history-month-navigation { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.history-month-navigation h3 { margin:0; }
+.history-month-navigation button,.scheduled-days button { min-height:42px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink); }
+.history-month-navigation button:disabled { opacity:.45; }
+.scheduled-days { margin:0 0 14px; font-size:13px; }
+.scheduled-days summary { min-height:36px; padding:8px 0; color:var(--muted); cursor:pointer; }
+.scheduled-days > div { display:flex; flex-wrap:wrap; gap:6px; }
+.scheduled-days button[aria-pressed="true"] { background:var(--mint); }
+.task-editor { flex:1 1 calc(100% - 60px); min-width:0; display:grid; gap:12px; padding:8px 0; }
+.task-editor label { display:grid; gap:5px; font-size:12px; color:var(--muted); }
+.task-editor input { width:100%; min-width:0; min-height:44px; border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:var(--panel); color:var(--ink); }
+.task-editor input:focus { outline:2px solid var(--accent-dark); outline-offset:2px; }
+.draft-help { margin:0; font-size:12px; color:var(--muted); }
+.editor-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.editor-actions button { min-height:44px; border:1px solid var(--line); border-radius:8px; padding:8px 16px; color:var(--ink); background:var(--panel); }
+.editor-actions button[type="submit"] { background:var(--ink); color:var(--panel); }
+.task-editor [role="alert"] { color:#a23b4e; margin:0; font-size:13px; }
+:root:root:root .footer-actions .focus-mode-open { min-height:44px; font-size:12px; }
+button:focus-visible,summary:focus-visible { outline:2px solid var(--accent-dark); outline-offset:3px; }
+@media (max-width:520px) { .history-day { min-height:60px; } .record-tags-trigger { min-height:44px; } }
+:root:root:root .form-message { color:var(--ink); }
+:root:root:root .row-actions-popover { width:190px; }
+.empty-record::after { content:none; }
+.empty-record .empty-compose { display:none; }

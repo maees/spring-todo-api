@@ -1,3 +1,7 @@
+import { TAGS, type Tag } from "../../shared/tags";
+import { TodoEditor } from "./TodoEditor";
+import { TodoTags } from "./TodoTags";
+import "./tags.css";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { BackupResult, Todo, TodoDaySummary, TodoFilter, TrashTodo } from "./types";
@@ -9,6 +13,7 @@ import "./celebrate.css";
 import "./review.css";
 import "./dream-details.css";
 import "./cafe-details.css";
+import "./usability.css";
 
 const filters: { value: TodoFilter; label: string }[] = [
     { value: "all", label: "すべて" },
@@ -158,7 +163,7 @@ function CelebrateModal({ open, closing, onClose }: { open: boolean; closing: bo
 }
 
 
-function RowActions({ todo, onPin, onDelete }: { todo: Todo; onPin: () => void; onDelete: () => void }) {
+function RowActions({ todo, onEdit, onPin, onDelete }: { todo: Todo; onEdit: () => void; onPin: () => void; onDelete: () => void }) {
     const detailsRef = useRef<HTMLDetailsElement>(null);
     const close = (restoreFocus = false) => {
         if (detailsRef.current) {
@@ -179,6 +184,7 @@ function RowActions({ todo, onPin, onDelete }: { todo: Todo; onPin: () => void; 
             onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(true); } }}>
             <summary aria-label={`「${todo.title}」の操作`} title="項目の操作"><span aria-hidden="true">⋮</span></summary>
             <div className="row-actions-popover">
+                <button type="button" onClick={() => { close(); onEdit(); }}>編集・予定日を変更</button>
                 <button type="button" onClick={() => { close(true); onPin(); }}>{todo.important ? "ピン留め解除" : "ピン留め"}</button>
                 <button type="button" className="row-action-delete" onClick={() => { close(true); onDelete(); }}>削除</button>
             </div>
@@ -201,6 +207,18 @@ type Theme = "dream" | "cafe";
 
 function TodoApp() {
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const settingsPanel = useRef<HTMLElement>(null);
+    useEffect(() => {
+        if (!settingsOpen) return;
+        const closeOutside = (event: PointerEvent) => {
+            if (!(event.target instanceof Node)) return;
+            if (settingsPanel.current?.contains(event.target)
+                || document.getElementById("settings-trigger")?.contains(event.target)) return;
+            setSettingsOpen(false);
+        };
+        document.addEventListener("pointerdown", closeOutside);
+        return () => document.removeEventListener("pointerdown", closeOutside);
+    }, [settingsOpen]);
     const [theme, setTheme] = useState<Theme>(() => {
         try { return localStorage.getItem("todo-theme") === "cafe" ? "cafe" : "dream"; }
         catch { return "dream"; }
@@ -214,6 +232,11 @@ function TodoApp() {
         const today = getTokyoDateKey();
         return { today, selected: today };
     });
+    const [view, setView] = useState<"today" | "plans" | "records">("today");
+    const [historyMonth, setHistoryMonth] = useState(() => shiftDateKey(getTokyoDateKey(), -1).slice(0, 7));
+    const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+    const busyTodos = useRef(new Set<string>());
+    const savingTodo = useRef(false);
     const [filter, setFilter] = useState<TodoFilter>("all");
     const [todos, setTodos] = useState<Todo[]>([]);
     const [availableDays, setAvailableDays] = useState<TodoDaySummary[]>([]);
@@ -244,17 +267,29 @@ function TodoApp() {
     }, [soundEnabled]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState("");
-    const [title, setTitle] = useState("");
+    const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>(() => {
+        try {
+            const saved = JSON.parse(sessionStorage.getItem("todo-compose-drafts") ?? "{}");
+            return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+        } catch { return {}; }
+    });
+    const title = titleDrafts[dayState.selected] ?? "";
+    function setTitle(value: string) {
+        setTitleDrafts((current) => {
+            const next = { ...current, [dayState.selected]: value };
+            try { sessionStorage.setItem("todo-compose-drafts", JSON.stringify(next)); } catch { /* Optional storage. */ }
+            return next;
+        });
+    }
+    const [adding, setAdding] = useState(false);
+    const [addedId, setAddedId] = useState<string | null>(null);
+    const [tagFilter, setTagFilter] = useState("all");
     const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-    const [editingTitle, setEditingTitle] = useState("");
-    const [savingEdit, setSavingEdit] = useState(false);
     const [reload, setReload] = useState(0);
     const [deletedTodos, setDeletedTodos] = useState<Todo[]>([]);
     const [undoBusy, setUndoBusy] = useState(false);
     const [completion, setCompletion] = useState<{ id: string; key: number } | null>(null);
     const titleInput = useRef<HTMLInputElement>(null);
-    const editInput = useRef<HTMLInputElement>(null);
-    const editForm = useRef<HTMLFormElement>(null);
     const calendarCloseButton = useRef<HTMLButtonElement>(null);
     const calendarTrigger = useRef<HTMLButtonElement>(null);
     const wasCalendarOpen = useRef(false);
@@ -266,7 +301,7 @@ function TodoApp() {
     const wasTrashOpen = useRef(false);
     const selectedDayTab = useRef<HTMLButtonElement>(null);
     const { today: todayDate, selected: selectedDate } = dayState;
-    const isReadOnly = selectedDate !== todayDate;
+    const isReadOnly = selectedDate < todayDate || view === "records";
     const previousToday = useRef(todayDate);
     const [focusOpen, setFocusOpen] = useState(false);
     const [focusTasks, setFocusTasks] = useState<Todo[]>([]);
@@ -301,11 +336,10 @@ function TodoApp() {
 
     useEffect(() => {
         setEditingTodoId(null);
-        setEditingTitle("");
     }, [todayDate]);
 
     useEffect(() => {
-        if (!isReadOnly || selectedDate !== todayDate) return;
+        if (isReadOnly || selectedDate !== todayDate) return;
         const celebrateKey = `${todayDate}:all-done`;
         if (celebratedKey === celebrateKey) return;
         if (todos.length === 0) return;
@@ -375,31 +409,8 @@ function TodoApp() {
     }, [selectedDate, availableDays]);
 
     useEffect(() => {
-        if (editingTodoId) {
-            editInput.current?.focus();
-            editInput.current?.select();
-        }
-    }, [editingTodoId]);
-
-    useEffect(() => {
-        if (!editingTodoId || savingEdit) return;
-
-        const handleOutsidePointerDown = (event: PointerEvent) => {
-            if (event.target instanceof Node && !editForm.current?.contains(event.target)) {
-                setEditingTodoId(null);
-                setEditingTitle("");
-                setMessage("");
-            }
-        };
-
-        document.addEventListener("pointerdown", handleOutsidePointerDown);
-        return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
-    }, [editingTodoId, savingEdit]);
-
-    useEffect(() => {
         let active = true;
         const query = new URLSearchParams({ date: selectedDate });
-        if (filter !== "all") query.set("done", String(filter === "done"));
         setLoading(true);
         setMessage("");
 
@@ -417,7 +428,7 @@ function TodoApp() {
         return () => {
             active = false;
         };
-    }, [filter, reload, selectedDate]);
+    }, [reload, selectedDate]);
 
     useEffect(() => {
         let active = true;
@@ -484,6 +495,7 @@ function TodoApp() {
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (adding) return;
         setMessage("");
         const trimmedTitle = title.trim();
         if (!trimmedTitle) {
@@ -492,23 +504,34 @@ function TodoApp() {
             return;
         }
 
+        setAdding(true);
         try {
-            await request<Todo>("/api/todos", {
+            const created = await request<Todo>("/api/todos", {
                 method: "POST",
-                body: JSON.stringify({ title: trimmedTitle, done: false, important: false })
+                body: JSON.stringify({ title: trimmedTitle, done: false, important: false, tagMode: "auto", date: selectedDate })
             });
+            setAddedId(created.id);
+            setFilter("all");
+            setTagFilter("all");
+            setTodos((current) => [created, ...current]);
+            setMessage("追加しました。一覧の先頭に表示しています。");
             setTitle("");
-            setReload((value) => value + 1);
             titleInput.current?.focus();
+            request<TodoDaySummary[]>("/api/days").then(setAvailableDays).catch(() => {});
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを追加できませんでした。");
+        } finally {
+            setAdding(false);
         }
     }
 
     async function handleToggle(todo: Todo) {
+        if (busyTodos.current.has(todo.id)) return;
+        busyTodos.current.add(todo.id);
+        setBusyIds(new Set(busyTodos.current));
         setMessage("");
         try {
-            await request<Todo>(`/api/todos/${todo.id}`, {
+            const updated = await request<Todo>(`/api/todos/${todo.id}`, {
                 method: "PUT",
                 body: JSON.stringify({ title: todo.title, done: !todo.done, important: todo.important ?? false })
             });
@@ -523,51 +546,50 @@ function TodoApp() {
                     }, 900);
                 }
             }
-            setReload((value) => value + 1);
-        } catch (error) {
-            setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
-        }
-    }
-
-    async function handleEditSubmit(event: FormEvent<HTMLFormElement>, todo: Todo) {
-        event.preventDefault();
-        const trimmedTitle = editingTitle.trim();
-        if (!trimmedTitle) {
-            setMessage("Todoを入力してください。");
-            editInput.current?.focus();
-            return;
-        }
-
-        setMessage("");
-        setSavingEdit(true);
-        try {
-            await request<Todo>(`/api/todos/${todo.id}`, {
-                method: "PUT",
-                body: JSON.stringify({ title: trimmedTitle, done: todo.done, important: todo.important ?? false })
-            });
-            setEditingTodoId(null);
-            setEditingTitle("");
-            setReload((value) => value + 1);
+            setTodos((current) => current.map((item) => item.id === todo.id ? updated : item));
+            refreshDays();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
         } finally {
-            setSavingEdit(false);
+            busyTodos.current.delete(todo.id);
+            setBusyIds(new Set(busyTodos.current));
         }
     }
 
-    function cancelEdit() {
-        setEditingTodoId(null);
-        setEditingTitle("");
-        setMessage("");
+    async function saveEdit(todo: Todo, title: string, date: string) {
+        savingTodo.current = true;
+        try {
+            const updated = await request<Todo>(`/api/todos/${todo.id}`, {
+                method: "PUT", body: JSON.stringify({ title, done: todo.done, important: todo.important ?? false, date })
+            });
+            setTodos((current) => date === selectedDate ? current.map((item) => item.id === todo.id ? updated : item) : current.filter((item) => item.id !== todo.id));
+            setEditingTodoId(null);
+            setMessage(date === selectedDate ? "保存しました。" : `${formatDay(date)}へ移動しました。`);
+            refreshDays();
+        } finally { savingTodo.current = false; }
     }
 
     function selectDay(date: string) {
+        if (adding || savingTodo.current) return;
+        setView(date > todayDate ? "plans" : date < todayDate ? "records" : "today");
         setDayState((current) => ({ ...current, selected: date }));
         setCalendarOpen(false);
         setFilter("all");
+        setTagFilter("all");
         setEditingTodoId(null);
-        setEditingTitle("");
         setMessage("");
+    }
+
+    function navigate(next: "today" | "plans" | "records") {
+        if (adding || savingTodo.current) return;
+        const date = next === "today" ? todayDate : next === "plans" ? (selectedDate > todayDate ? selectedDate : shiftDateKey(todayDate, 1)) : shiftDateKey(todayDate, -1);
+        selectDay(date);
+        if (next === "records") setHistoryMonth(date.slice(0, 7));
+        setView(next);
+    }
+
+    function refreshDays() {
+        void request<TodoDaySummary[]>("/api/days").then(setAvailableDays).catch(() => setMessage("集計の更新に失敗しました。再読み込みしてください。"));
     }
 
     async function handleDelete(todo: Todo) {
@@ -575,7 +597,8 @@ function TodoApp() {
         try {
             await request<null>(`/api/todos/${todo.id}`, { method: "DELETE" });
             setDeletedTodos((current) => [...current.filter((item) => item.id !== todo.id), todo]);
-            setReload((value) => value + 1);
+            setTodos((current) => current.filter((item) => item.id !== todo.id));
+            refreshDays();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを削除できませんでした。");
         }
@@ -598,11 +621,12 @@ function TodoApp() {
     async function toggleImportant(todo: Todo) {
         setMessage("");
         try {
-            await request<Todo>(`/api/todos/${todo.id}`, {
+            const updated = await request<Todo>(`/api/todos/${todo.id}`, {
                 method: "PUT",
                 body: JSON.stringify({ title: todo.title, done: todo.done, important: !(todo.important ?? false) })
             });
-            setReload((value) => value + 1);
+            setTodos((current) => current.map((item) => item.id === todo.id ? updated : item));
+            refreshDays();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "Todoを更新できませんでした。");
         }
@@ -678,37 +702,22 @@ function TodoApp() {
     }
 
     const pagesByDate = new Map<string, TodoDaySummary>(availableDays.map((day) => [day.date, day]));
-    const selectedSummary = pagesByDate.get(selectedDate);
-    const total = selectedSummary?.todoCount ?? todos.length;
-    const done = selectedSummary?.doneCount ?? todos.filter((todo) => todo.done).length;
-    const percent = selectedSummary?.percent ?? (total === 0 ? 0 : Math.round((done / total) * 100));
-    const carriedCount = selectedSummary?.carriedOverCount ?? todos.filter((todo) => todo.carriedOver).length;
+    const total = todos.length;
+    const done = todos.filter((todo) => todo.done).length;
+    const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+    const carriedCount = todos.filter((todo) => todo.carriedOver).length;
     const [calendarYear, calendarMonthNumber] = calendarMonth.split("-").map(Number);
     const calendarDayCount = new Date(Date.UTC(calendarYear, calendarMonthNumber, 0)).getUTCDate();
     const calendarOffset = new Date(Date.UTC(calendarYear, calendarMonthNumber - 1, 1)).getUTCDay();
     const calendarCells = Array.from({ length: calendarOffset + calendarDayCount }, (_, index) =>
         index < calendarOffset ? null : index - calendarOffset + 1
     );
-    const heatmapWeeks = 16;
-    const todayWeekday = new Date(`${todayDate}T00:00:00.000Z`).getUTCDay();
-    const heatmapStart = shiftDateKey(todayDate, -((heatmapWeeks - 1) * 7 + todayWeekday));
-    const heatmapCells = Array.from({ length: heatmapWeeks * 7 }, (_, index) => {
-        const date = shiftDateKey(heatmapStart, index);
-        const summary = pagesByDate.get(date);
-        const future = date > todayDate;
-        const rate = summary?.percent ?? 0;
-        const level = !summary || summary.doneCount === 0
-            ? 0
-            : rate >= 100
-                ? 4
-                : rate >= 70
-                    ? 3
-                    : rate >= 40
-                        ? 2
-                        : 1;
-        return { date, summary, future, level };
-    });
-    const heatmapLabel = `${formatTabDay(heatmapStart)}〜${formatTabDay(todayDate)}`;
+    const [historyYear, historyMonthNumber] = historyMonth.split("-").map(Number);
+    const historyDayCount = new Date(Date.UTC(historyYear, historyMonthNumber, 0)).getUTCDate();
+    const historyOffset = new Date(Date.UTC(historyYear, historyMonthNumber - 1, 1)).getUTCDay();
+    const historyCells = Array.from({ length: historyOffset + historyDayCount }, (_, index) =>
+        index < historyOffset ? null : `${historyMonth}-${String(index - historyOffset + 1).padStart(2, "0")}`
+    );
     const earliestPageMonth = availableDays.at(-1)?.date.slice(0, 7) ?? todayDate.slice(0, 7);
     const currentMonth = todayDate.slice(0, 7);
     const earliestCalendarMonth = shiftMonth(earliestPageMonth, -12);
@@ -719,6 +728,8 @@ function TodoApp() {
         month: "long"
     }).format(new Date(`${calendarMonth}-01T00:00:00.000Z`));
 
+    const visibleTodos = todos.filter((todo) => (filter === "all" || todo.done === (filter === "done"))).filter((todo) => tagFilter === "all" || (tagFilter === "none" ? todo.tags.length === 0 : todo.tags.includes(tagFilter as Tag))).sort((a, b) => Number(b.id === addedId) - Number(a.id === addedId));
+
     const focusTodo = focusTasks[focusIndex] ?? null;
     const focusMinutes = String(Math.floor(focusSeconds / 60)).padStart(2, "0");
     const focusRemainder = String(focusSeconds % 60).padStart(2, "0");
@@ -727,7 +738,7 @@ function TodoApp() {
     return (
         <main className="app-shell">
             <section className="hero" aria-label="ホーム">
-                <h1 className="sr-only">今日のリスト</h1>
+                <h1>{view === "today" ? "今日のTodo" : view === "plans" ? "これからの予定" : "日ごとの記録"}</h1>
                 {theme === "dream" ? (
                     <svg className="dream-sky" viewBox="0 0 110 112" fill="none" aria-hidden="true" focusable="false">
                         <path className="dream-moon" d="M73 12C57 13 47 27 51 42c4 16 24 23 37 12-17 1-29-14-23-29 2-5 5-9 8-13Z" />
@@ -743,39 +754,39 @@ function TodoApp() {
             </section>
 
             <section className="todo-panel" aria-label="Todoの管理">
-                <div className="archive-tabs" role="group" aria-label="日付のページ">
-                    {availableDays.map((day) => (
-                        <button
-                            ref={day.date === selectedDate ? selectedDayTab : null}
-                            className={`archive-tab${day.date === selectedDate ? " is-selected" : ""}`}
-                            type="button"
-                            key={day.date}
-                            aria-pressed={day.date === selectedDate}
-                            aria-label={`${formatDay(day.date)}${day.date === todayDate ? "、今日" : `、Todo ${day.todoCount}件`}`}
-                            title={formatDay(day.date)}
-                            onClick={() => selectDay(day.date)}
-                        >
-                            <span className="archive-tab-date">{formatTabDay(day.date)}</span>
-                            <small>{day.date === todayDate ? "今日" : `${day.todoCount}件`}</small>
-                        </button>
-                    ))}
-                </div>
-                <button
-                    ref={calendarTrigger}
-                    className="calendar-open"
-                    type="button"
-                    aria-label="カレンダーを開く"
-                    title="カレンダーを開く"
-                    onClick={() => {
-                        setCalendarMonth(selectedDate.slice(0, 7));
-                        setCalendarOpen(true);
-                    }}
-                >
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v4m10-4v4M4 9h16M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </button>
+                <nav className="main-navigation" aria-label="メインメニュー">
+                    {(["today", "plans", "records"] as const).map((item) => <button key={item} type="button" aria-current={view === item ? "page" : undefined} onClick={() => navigate(item)}>{item === "today" ? "今日" : item === "plans" ? "予定" : "記録"}</button>)}
+                </nav>
+                {view === "records" && <section className="history-details">
+                    <section className="monthly-history" aria-label={`${historyYear}年${historyMonthNumber}月の日ごとの完了数`}>
+                        <div className="history-month-navigation"><button type="button" aria-label="前の月" onClick={() => setHistoryMonth(shiftMonth(historyMonth, -1))}>‹ 前月</button><h3>{historyYear}年{historyMonthNumber}月</h3><button type="button" aria-label="次の月" disabled={historyMonth >= shiftDateKey(todayDate, -1).slice(0, 7)} onClick={() => setHistoryMonth(shiftMonth(historyMonth, 1))}>次月 ›</button></div>
+                        <p className="history-help">日付を押すと、その日のリストが開きます。</p>
+                        <div className="history-weekdays" aria-hidden="true">
+                            {["日", "月", "火", "水", "木", "金", "土"].map((day) => <span key={day}>{day}</span>)}
+                        </div>
+                        <div className="history-month-grid">
+                            {historyCells.map((date, index) => {
+                                if (!date) return <span key={`blank-${index}`} />;
+                                const summary = pagesByDate.get(date);
+                                const unavailable = date >= todayDate;
+                                const label = unavailable ? "記録の対象外" : summary ? `${summary.todoCount}件中${summary.doneCount}件完了` : "記録なし";
+                                return <button key={date} type="button" disabled={unavailable || !summary}
+                                    className={`history-day${date === todayDate ? " is-today" : ""}`}
+                                    aria-label={`${formatDay(date)}：${label}。その日のリストを開く`}
+                                    aria-pressed={date === selectedDate}
+                                    onClick={() => { if (date < todayDate) { selectDay(date); setView("records"); } }}>
+                                    <span>{Number(date.slice(-2))}</span>
+                                    <small>{unavailable ? "—" : summary ? `${summary.doneCount}/${summary.todoCount}完了` : "—"}</small>
+                                </button>;
+                            })}
+                        </div>
+                        <p className="history-selection" role="status">{formatTabDay(selectedDate)}：{selectedDate > todayDate ? `予定${total}件` : `${total}件中${done}件完了`}</p>
+                        <p className="history-help">昨日までの記録を表示しています。「—」は記録なし、または対象外の日付です。</p>
+                    </section>
+                </section>}
                 <header className="panel-header">
                     <div className="header-copy">
-                        <p className="date-label">{formatDay(selectedDate)}</p>
+                        <p className="date-label">{formatDay(selectedDate)}{selectedDate > todayDate && <span className="future-label">未来の予定</span>}</p>
                         <p className="day-stats" aria-live="polite">
                             <span>{selectedDate === todayDate ? "今日完了" : "完了"} <b>{done}</b> / 全体 <b>{total}</b></span>
                             <span className="day-stat-carry">引き継ぎ <b>{carriedCount}</b></span>
@@ -791,42 +802,16 @@ function TodoApp() {
                     </div>
                 </header>
 
-                <section className="habit-heatmap" aria-label={`直近${heatmapWeeks}週間の達成率`}>
-                    <div className="heatmap-head">
-                        <strong>積み重ね</strong>
-                        <span>{heatmapLabel}</span>
-                    </div>
-                    <div className="heatmap-grid" role="list" aria-label="日ごとの完了数と達成率">
-                        {heatmapCells.map((cell) => {
-                            const label = cell.future
-                                ? ""
-                                : cell.summary
-                                    ? `${formatDay(cell.date)}、${cell.summary.doneCount}/${cell.summary.todoCount}件完了、達成率${cell.summary.percent}%`
-                                    : `${formatDay(cell.date)}、記録なし`;
-                            return (
-                                <span
-                                    key={cell.date}
-                                    className={`heatmap-cell${cell.future ? " is-future" : ""}${cell.date === todayDate ? " is-today" : ""}`}
-                                    data-level={cell.level}
-                                    role={cell.future ? undefined : "listitem"}
-                                    aria-label={cell.future ? undefined : label}
-                                    aria-hidden={cell.future ? "true" : undefined}
-                                    title={cell.future ? undefined : label}
-                                />
-                            );
-                        })}
-                    </div>
-                    <div className="heatmap-legend" aria-hidden="true">
-                        <span>少ない</span>
-                        {[0, 1, 2, 3, 4].map((level) => (
-                            <i key={level} className="heatmap-cell" data-level={level} />
-                        ))}
-                        <span>多い</span>
-                    </div>
-                </section>
 
+
+                {view === "plans" && <div className="plan-date-picker">
+                    <label htmlFor="plan-date">この日の予定を表示・追加</label>
+                    <input id="plan-date" type="date" min={shiftDateKey(todayDate, 1)} value={selectedDate} onChange={(event) => { if (event.target.value && event.target.validity.valid) selectDay(event.target.value); }} />
+                                        <button type="button" onClick={() => selectDay(shiftDateKey(todayDate, 1))}>明日</button>
+                </div>}
+                {view === "plans" && availableDays.some((day) => day.date > todayDate && day.todoCount > 0) && <details className="scheduled-days"><summary>登録済みの予定を見る</summary><div>{availableDays.filter((day) => day.date > todayDate && day.todoCount > 0).sort((a, b) => a.date.localeCompare(b.date)).map((day) => <button type="button" key={day.date} aria-pressed={selectedDate === day.date} onClick={() => selectDay(day.date)}>{formatTabDay(day.date)} · {day.todoCount}件</button>)}</div></details>}
                 {isReadOnly ? (
-                    <p className="archive-notice" title="閲覧専用"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg><span className="sr-only">過去の日付のページは閲覧専用です</span></p>
+                    <p className="archive-notice" title="閲覧専用"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg><span>記録は閲覧専用です。タグは変更できます。</span></p>
                 ) : (
                     <form className="todo-form" onSubmit={handleSubmit}>
                         <svg className="compose-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16-1 4 4-1L20 7l-3-3L5 16Zm10-10 3 3" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -837,13 +822,13 @@ function TodoApp() {
                             name="title"
                             type="text"
                             maxLength={255}
-                            placeholder="追加する…"
+                            placeholder="やることを入力してEnter"
                             autoComplete="off"
                             required
                             value={title}
                             onChange={(event) => setTitle(event.target.value)}
                         />
-                        <button type="submit" className="add-button" aria-label="追加" title="追加"><span aria-hidden="true">＋</span></button>
+                        <button type="submit" className="add-button" disabled={adding} aria-label="追加">{adding ? "追加中…" : "追加"}</button>
                     </form>
                 )}
                 <p className="form-message" aria-live="polite">{message}</p>
@@ -863,51 +848,36 @@ function TodoApp() {
                             </button>
                         ))}
                     </div>
-                    <button
-                        className="focus-mode-open"
-                        type="button"
-                        disabled={isReadOnly || loading}
-                        onClick={() => void openFocusMode()}
-                    >
-                        <span aria-hidden="true">◎</span>
-                        <span>集中モード</span>
-                    </button>
+
 
                 </div>
 
+                <details className="filter-options"><summary>タグで絞り込む{tagFilter !== "all" ? `：${tagFilter === "none" ? "タグなし" : tagFilter}` : ""}</summary>
+                <label className="tag-filter">タグで絞り込む
+                    <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+                        <option value="all">すべてのタグ</option>
+                        <option value="none">タグなし</option>
+                        {TAGS.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                    </select>
+                </label>
+                </details>
                 {loading && <div className="loading" role="status"><span className="loading-orbit" aria-hidden="true" /><span className="sr-only">読み込み中</span></div>}
                 {!loading && total > 0 && (
                     <ul className="todo-list" aria-live="polite">
-                        {todos.map((todo) => (
-                            <li className={`todo-item${todo.done ? " is-done" : ""}${todo.important ? " is-important" : ""}`} key={todo.id}>
+                        {visibleTodos.map((todo) => (
+                            <li className={`todo-item${todo.done ? " is-done" : ""}${todo.important ? " is-important" : ""}${todo.id === addedId ? " is-new" : ""}`} key={todo.id}>
                                 <button
                                     className="check-button"
                                     type="button"
                                     aria-pressed={todo.done}
                                     aria-label={`「${todo.title}」を${todo.done ? "未完了" : "完了"}にする`}
-                                    disabled={isReadOnly || editingTodoId === todo.id}
+                                    disabled={isReadOnly || editingTodoId === todo.id || busyIds.has(todo.id)}
                                     onClick={() => handleToggle(todo)}
                                 >
                                     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                 </button>
                                 {editingTodoId === todo.id && !isReadOnly ? (
-                                    <form ref={editForm} className="todo-edit-form" onSubmit={(event) => handleEditSubmit(event, todo)}>
-                                        <input
-                                            ref={editInput}
-                                            className="todo-edit-input"
-                                            type="text"
-                                            aria-label={`「${todo.title}」のタイトルを編集`}
-                                            maxLength={255}
-                                            required
-                                            value={editingTitle}
-                                            onChange={(event) => setEditingTitle(event.target.value)}
-                                            onKeyDown={(event) => {
-                                                if (event.key === "Escape") cancelEdit();
-                                            }}
-                                        />
-                                        <button className="edit-save-button" type="submit" disabled={savingEdit}>保存</button>
-                                        <button className="edit-cancel-button" type="button" disabled={savingEdit} onClick={cancelEdit}>キャンセル</button>
-                                    </form>
+                                    <TodoEditor key={todo.id} todo={todo} date={selectedDate} today={todayDate} onSave={(title, date) => saveEdit(todo, title, date)} onCancel={() => setEditingTodoId(null)} />
                                 ) : (
                                     <>
                                         {isReadOnly ? (
@@ -916,10 +886,9 @@ function TodoApp() {
                                             <button
                                                 className="todo-title todo-title-button"
                                                 type="button"
-                                                aria-label={`「${todo.title}」を編集する`}
+                                                aria-label={`「${todo.title}」を編集・予定日を変更する`}
                                                 onClick={() => {
                                                     setEditingTodoId(todo.id);
-                                                    setEditingTitle(todo.title);
                                                     setMessage("");
                                                 }}
                                             >
@@ -940,34 +909,48 @@ function TodoApp() {
                                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5m6-9-1.5-1.5L14 9V4l1-1H9L10 4v5l-2.5 2.5L6 13Z" fill={todo.important ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                             </button>
                                         )}
-                                        {!isReadOnly && <RowActions todo={todo} onPin={() => { void toggleImportant(todo); }} onDelete={() => { void handleDelete(todo); }} />}
+                                        {!isReadOnly && <RowActions todo={todo} onEdit={() => setEditingTodoId(todo.id)} onPin={() => { void toggleImportant(todo); }} onDelete={() => { void handleDelete(todo); }} />}
                                     </>
                                 )}
+                                {todo.id === addedId && <span className="new-badge">追加しました</span>}
+                                <TodoTags todo={todo} onUpdated={(updated) => setTodos((current) => current.map((item) => item.id === updated.id ? updated : item))} />
                                 {todo.carriedOver && <span className="carried-badge">引き継ぎ</span>}
                                 {todo.important && <span className="priority-badge">優先</span>}
                             </li>
                         ))}
                     </ul>
                 )}
+                {!loading && total > 0 && visibleTodos.length === 0 && <p role="status">この条件に一致するTodoはありません。</p>}
                 {!loading && total === 0 && (
-                    <div className="empty-state">
+                    <div className={`empty-state${view === "records" ? " empty-record" : ""}`}>
+                        {view === "records" && <p>この日の記録はありません。</p>}
                         <button className="empty-compose" type="button" aria-label="最初の項目を入力" onClick={() => titleInput.current?.focus()} disabled={isReadOnly}>
                             <svg viewBox="0 0 120 84" fill="none" aria-hidden="true"><rect x="20" y="8" width="80" height="68" rx="14" stroke="currentColor" strokeWidth="2" /><circle cx="38" cy="29" r="5" stroke="currentColor" strokeWidth="2" /><path d="M53 29h30M53 46h25M33 46h10M33 61h42" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
                         </button>
                     </div>
                 )}
 
+
                 <footer className="panel-footer">
                     <p className="sr-only">{total}件中 {done}件完了</p>
                     <div className="footer-actions">
-                        <button id="settings-trigger" className="backup-open" type="button" aria-expanded={settingsOpen} aria-controls="theme-settings" aria-label="設定" title="設定" onClick={() => setSettingsOpen(!settingsOpen)}><UiIcon name="settings" /></button>
+                    <button
+                        className="focus-mode-open"
+                        type="button"
+                        disabled={view !== "today" || loading}
+                        onClick={() => void openFocusMode()}
+                    >
+                        <span aria-hidden="true">◎</span>
+                        <span>集中モード</span>
+                    </button>
+                        <button id="settings-trigger" className="backup-open" type="button" aria-expanded={settingsOpen} aria-controls="theme-settings" aria-label="設定" title="設定" onClick={() => setSettingsOpen(!settingsOpen)}><UiIcon name="settings" /><span>設定</span></button>
                         <button
                             aria-label="ルーティン" title="ルーティン"
                             className="backup-open"
                             type="button"
                             onClick={() => setRoutineOpen(true)}
                         >
-                            <UiIcon name="repeat" />
+                            <UiIcon name="repeat" /><span>ルーティン</span>
                         </button>
                         <button
                             aria-label="今日の振り返り" title="今日の振り返り"
@@ -975,7 +958,7 @@ function TodoApp() {
                             type="button"
                             onClick={() => openReview(selectedDate)}
                         >
-                            <UiIcon name="review" />
+                            <UiIcon name="review" /><span>振り返り</span>
                         </button>
                         <button
                             ref={trashTrigger}
@@ -984,7 +967,7 @@ function TodoApp() {
                             type="button"
                             onClick={() => setTrashOpen(true)}
                         >
-                            <UiIcon name="trash" />
+                            <UiIcon name="trash" /><span>ゴミ箱</span>
                         </button>
                         <button
                             ref={backupTrigger}
@@ -997,12 +980,12 @@ function TodoApp() {
                                 setBackupOpen(true);
                             }}
                         >
-                            <UiIcon name="backup" />
+                            <UiIcon name="backup" /><span>バックアップ</span>
                         </button>
                     </div>
                 </footer>
                 {settingsOpen && (
-                    <section className="theme-settings" id="theme-settings" aria-labelledby="settings-title" onKeyDown={(event) => { if (event.key === "Escape") { setSettingsOpen(false); document.getElementById("settings-trigger")?.focus(); } }}>
+                    <section ref={settingsPanel} className="theme-settings" id="theme-settings" aria-labelledby="settings-title" onKeyDown={(event) => { if (event.key === "Escape") { setSettingsOpen(false); document.getElementById("settings-trigger")?.focus(); } }}>
                         <header className="settings-header">
                             <h3 id="settings-title">設定</h3>
                             <button type="button" className="settings-close" aria-label="設定を閉じる" onClick={() => { setSettingsOpen(false); document.getElementById("settings-trigger")?.focus(); }}>×</button>
@@ -1181,7 +1164,7 @@ function TodoApp() {
                                         key={date}
                                         aria-label={`${formatDay(date)}${page ? `、Todo ${page.todoCount}件` : "、ページなし"}`}
                                         aria-pressed={isSelected}
-                                        disabled={!page || isFuture}
+                                        disabled={!page && !isFuture && !isToday}
                                         onClick={() => selectDay(date)}
                                     >
                                         <span>{day}</span>

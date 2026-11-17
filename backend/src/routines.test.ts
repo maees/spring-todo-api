@@ -79,3 +79,18 @@ describe("ルーティンの繰り返し", () => {
         expect(history).toEqual([{ routineId: "routine-1", dateKey: "2026-11-04", todoId: carriedTodo.id }]);
     });
 });
+
+it("ルーティンから新規Todoへ手動タグを引き継ぐ", async () => {
+    let createdData: unknown;
+    const database = {
+        todoDay: { upsert: async () => ({}) },
+        routine: { findMany: async () => [{ id: "tagged", title: "会議", ...baseRoutine, tags: ["学習"], tagMode: "manual" }] },
+        routineHistory: { findUnique: async () => null, create: async () => ({}) },
+        todo: {
+            findFirst: async () => null,
+            create: async ({ data }: { data: unknown }) => { createdData = data; return { id: 1n }; }
+        }
+    };
+    await applyRoutines("2026-11-04", database as unknown as typeof prisma);
+    expect(createdData).toMatchObject({ tags: ["学習"], tagMode: "manual" });
+});

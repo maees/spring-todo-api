@@ -1,0 +1,1 @@
+ALTER TABLE "todo_days" ADD COLUMN "activated" BOOLEAN NOT NULL DEFAULT true;

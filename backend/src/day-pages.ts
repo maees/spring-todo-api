@@ -1,3 +1,4 @@
+import { resolveTags } from "./tags";
 import { prisma } from "./prisma";
 
 export function getTodayDateKey(now: Date = new Date()): string {
@@ -26,9 +27,11 @@ export async function ensureDayPage(dateKey: string, database: typeof prisma = p
         await transaction.$queryRaw`SELECT pg_advisory_xact_lock(71423019) IS NOT NULL AS locked`;
 
         const existing = await transaction.todoDay.findUnique({ where: { date: day } });
-        if (existing) return existing;
+        if (existing?.activated) return existing;
 
-        const page = await transaction.todoDay.create({ data: { date: day } });
+        const page = existing
+            ? await transaction.todoDay.update({ where: { date: day }, data: { activated: true } })
+            : await transaction.todoDay.create({ data: { date: day } });
         const previousPage = await transaction.todoDay.findFirst({
             where: { date: { lt: day } },
             orderBy: { date: "desc" }
@@ -37,15 +40,16 @@ export async function ensureDayPage(dateKey: string, database: typeof prisma = p
         if (previousPage) {
             const unfinishedTodos = await transaction.todo.findMany({
                 where: { day: previousPage.date, done: false, deletedAt: null },
-                select: { title: true, important: true }
+                select: { title: true, important: true, tags: true, tagMode: true }
             });
 
             if (unfinishedTodos.length > 0) {
                 await transaction.todo.createMany({
-                    data: unfinishedTodos.map(({ title, important }) => ({
-                        title,
+                    data: unfinishedTodos.map((todo) => ({
+                        ...resolveTags(todo.title, todo),
+                        title: todo.title,
                         done: false,
-                        important,
+                        important: todo.important,
                         carriedOver: true,
                         day
                     }))
@@ -57,6 +61,12 @@ export async function ensureDayPage(dateKey: string, database: typeof prisma = p
     });
 }
 
-export function ensureCurrentDayPage() {
-    return ensureDayPage(getTodayDateKey());
+export async function ensureCurrentDayPage() {
+    const today = getTodayDateKey();
+    const pending = await prisma.todoDay.findMany({
+        where: { activated: false, date: { lte: dateKeyToDate(today) } },
+        orderBy: { date: "asc" }
+    });
+    for (const page of pending) await ensureDayPage(dateToKey(page.date));
+    return ensureDayPage(today);
 }

@@ -182,3 +182,23 @@ describe("バックアップの復元", () => {
         ]);
     });
 });
+
+describe("タグのバックアップ", () => {
+    const file: BackupFile = {
+        app: "daily-flow-todo", version: 1, exportedAt: "2026-11-14T00:00:00Z",
+        days: [{ date: "2026-11-14", todos: [
+            { title: "会議", done: false, tags: ["学習"], tagMode: "manual" },
+            { title: "薬を買う", done: true, tags: [], tagMode: "manual" }
+        ] }]
+    };
+    it("JSONとCSVで手動タグとタグなしを保持する", () => {
+        expect(parseBackupJson(JSON.stringify(file)).days).toEqual(file.days);
+        expect(parseBackupCsv(toBackupCsv(file)).days).toEqual(file.days);
+    });
+    it("復元時も手動設定を保持する", async () => {
+        const { database, todos } = createFakeDatabase([], []);
+        await restoreBackup(parseBackupCsv(toBackupCsv(file)), "replace", database);
+        expect(todos[0]).toMatchObject({ tags: ["学習"], tagMode: "manual" });
+        expect(todos[1]).toMatchObject({ tags: [], tagMode: "manual" });
+    });
+});

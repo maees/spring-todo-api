@@ -1,3 +1,5 @@
+import type { Tag, TagMode } from "../../shared/tags";
+import { TagPicker } from "./TagPicker";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { request } from "./api";
 import type { Routine } from "./types";
@@ -62,6 +64,8 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
     const [message, setMessage] = useState("");
     const [editingId, setEditingId] = useState<string | null>(null);
     const [title, setTitle] = useState("");
+    const [tags, setTags] = useState<Tag[]>([]);
+    const [tagMode, setTagMode] = useState<TagMode>("auto");
     const [intervalDays, setIntervalDays] = useState(1);
     const [days, setDays] = useState<number[]>([]);
     const closeButton = useRef<HTMLButtonElement>(null);
@@ -87,6 +91,8 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
     function resetForm() {
         setEditingId(null);
         setTitle("");
+        setTags([]);
+        setTagMode("auto");
         setIntervalDays(1);
         setDays([]);
     }
@@ -94,6 +100,8 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
     function beginEdit(routine: Routine) {
         setEditingId(routine.id);
         setTitle(routine.title);
+        setTags(routine.tags);
+        setTagMode(routine.tagMode);
         setIntervalDays(routine.intervalDays);
         setDays(routine.daysOfWeek);
         setMessage("");
@@ -131,6 +139,8 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
                     method: "PUT",
                     body: JSON.stringify({
                         title: trimmed,
+                        tags,
+                        tagMode,
                         enabled: current?.enabled ?? true,
                         daysOfWeek: days,
                         intervalDays
@@ -142,6 +152,8 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
                     method: "POST",
                     body: JSON.stringify({
                         title: trimmed,
+                        tags,
+                        tagMode,
                         enabled: true,
                         daysOfWeek: days,
                         intervalDays
@@ -232,6 +244,7 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
                             onChange={(event) => setTitle(event.target.value)}
                         />
                     </label>
+                    <TagPicker title={title} tags={tags} mode={tagMode} disabled={saving} onChange={(next, mode) => { setTags(next); setTagMode(mode); }} />
                     <div className="routine-schedule">
                         <label className="routine-field routine-field--interval">
                             <span>間隔</span>
@@ -280,6 +293,7 @@ export function RoutinePanel({ open, onClose, onChanged }: RoutinePanelProps) {
                             <li className={`routine-item${routine.enabled ? "" : " is-paused"}`} key={routine.id}>
                                 <div className="routine-item-copy">
                                     <p className="routine-item-title">{routine.title}</p>
+                                    <div>{routine.tags.map((tag) => <span className="todo-tag" key={tag}>{tag}</span>)}</div>
                                     <p className="routine-item-meta">{describeRoutine(routine)}</p>
                                 </div>
                                 <div className="routine-item-actions">
